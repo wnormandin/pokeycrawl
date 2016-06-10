@@ -90,3 +90,4 @@ ENV/
 
 # PokeyConfig .cfg files
 *.cfg
+tests/
