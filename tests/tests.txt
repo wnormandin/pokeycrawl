@@ -1,0 +1,6 @@
+The tests/ directory will contain various test files and log information.  
+
+Files that should be in this location :
+
+  strace_crawl.sh output  -- output files from debug utility
+  *.log                   -- miscellaneous log files
