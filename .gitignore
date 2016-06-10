@@ -88,6 +88,6 @@ ENV/
 # Rope project settings
 .ropeproject
 
-# PokeyConfig .cfg files
+# PokeyConfig .cfg files, misc
 *.cfg
-tests/*
+strace_crawl*
