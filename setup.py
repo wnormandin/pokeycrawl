@@ -1,8 +1,8 @@
-from setuptools import setup
+from setuptools import setup,find_packages
 
 setup(
     name="pokeycrawl",
-    version="1.0.1a1",  # Alpha release
+    version="0.1.1a1",  # Alpha release
     install_requires=[
         'mechanize',
         'urlparse',
@@ -21,14 +21,14 @@ setup(
     url='https://github.com/wnormandin/pokeycrawl',
     packages=find_packages(exclude=['docs','tests']),
     license='MIT',
-    description='A python webcrawler'
+    description='A python webcrawler',
     classifiers=[
         'Development Status :: 3 - Alpha',
-        'Intended Audience :: Developers,Webmasters',
-        'Topic :: Web Hosting :: Website Utilities',
+        'Intended Audience :: Developers',
+        'Topic :: Internet :: WWW/HTTP :: Indexing/Search',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7'
-        ]
+        ],
     keywords='spider crawler website indexing load-testing',
     )

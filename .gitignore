@@ -91,3 +91,4 @@ ENV/
 # PokeyConfig .cfg files, misc
 *.cfg
 strace_crawl*
+ua.txt
