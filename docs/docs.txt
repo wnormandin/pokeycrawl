@@ -1,0 +1,6 @@
+The docs/ directory is intended for miscellaneous documentation and text file storage.
+
+Files that should be in this location :
+  ua.txt    -- listing of ua strings to be used with -v|--vary
+  usage.md  -- basic usage explanation and examples
+  *.cfg     -- encoded configuration files (a la pokeyworks:pokeyconfig)
