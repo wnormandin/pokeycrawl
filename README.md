@@ -1,7 +1,7 @@
 ##pokeycrawl
 ###A python web crawler for load-testing and indexing purposes
 
-Pokeycrawl is a Python 2.7 command-line tool allowing the crawling of websites
+Pokeycrawl is a Python 2.7 Linux tool allowing the crawling of websites
 in order to load test (with multiprocessing) or store a site index.
 
 ####Installation
