@@ -1,20 +1,32 @@
 #!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
+"""
+This utility uses multiprocessing to crawl websites, simulating multiple users
+in order to load-test website functionality or simply to index the URLs within
+a site.
+
+https://github.com/wnormandin/pokeycrawl
+"""
+
 import mechanize
 import urlparse
 import random
 import signal
 import socket
 import time
-from  multiprocessing import Process, Queue
-from Queue import Empty
 import argparse
 import os, sys
 import operator
 
+from  multiprocessing import Process, Queue
+# Multiprocessing Queue inherits from Queue, need to import error classes
+# from the stdlib Queue
+from Queue import Empty
+
 def parse_arguments():
 
+    # Defines options for command-line invocation
     parser = argparse.ArgumentParser()
 
     parser.add_argument('url',type=str,help='The URL to crawl')
@@ -41,6 +53,10 @@ def parse_arguments():
     parser.add_argument('--silent',action='store_true',
                 help='silences URL crawl notifications')
 
+    # The --robots and --gz arguments are experimentally supported in 
+    # mechanize, check your mechanize version for details and potential
+    # issues.
+
     return parser.parse_args()
 
 class Stats:
@@ -53,7 +69,10 @@ class Stats:
     def refresh(self):
         # re-initialize each counter
         self.crawled_count = 0
-        self.err = {}
+        self.err = {
+            'urls':[],
+            'errors':{}
+            }
         self.times = []
         self.url_counts = []
         self.external_skipped = 0
@@ -69,13 +88,13 @@ class Stats:
         self.times.extend(times)
 
     def error(self,deets):
-        # increment each  error encountered
+        # increment each error encountered
         # deets['url], deets['error']
+        self.err['urls'].append(deets['url'])
         try:
-            self.err[deets['error']][0] += 1
+            self.err['errors'][deets['error']] += 1
         except:
-            self.err[deets['error']][0] = 1
-        self.err[deets['error']].append(deets['url'])
+            self.err['errors'][deets['error']] = 1
 
 def bean_wrap(cls):
 
@@ -107,16 +126,19 @@ class Spider:
         self.browser = prep_browser(args)
         self.url = self.prep_url(args.url)
         self.ip = self.dig(urlparse.urlparse(self.url).hostname)
+
+        # Each process aggregates site visit statistics
+        # which are passed back via the stats Queue (r)
         self.stats = {
                 'times':[],
                 'visited':0,
                 'err':[],
                 'url_counts':[],
-                'external_links_skipped':0,
+                'links_skipped':0,
                 'ip':self.ip
                 }
 
-        # Grab the current worker name
+        # Grab the current worker process id
         self.name = 'Worker ({})'.format(
                     os.getpid()
                     )
@@ -126,11 +148,16 @@ class Spider:
             if self.ip is not None:
                self.get_links(self.url)
                self.stats['visited'] = len(self.history)
+        except KeyboardInterrupt:
+            pass    # Skip processing for KeyboardInterrupts
         except:
-            raise
+            raise   # Raise exceptions
         finally:
-            self.stats['visited'] = len(self.history)
-            self.r.put(self.stats)
+            try:
+                self.stats['visited'] = len(self.history)
+                self.r.put(self.stats)
+            except:
+                raise
 
     def prep_url(self,url):
         return 'http://'+url if 'http' not in url else url
@@ -155,9 +182,9 @@ class Spider:
             req = self.browser.open(url)
         except Exception as e:
             if self.args.debug:
-                print '{} : '.format(ln),str(e)
+                print '{} : '.format(url),str(e)
             self.stats['err'].append(
-                { 'error': str(e),'url':ln }
+                { 'error': str(e),'url':url }
                 )
 
 
@@ -169,9 +196,8 @@ class Spider:
                 if self.q.get(True,self.args.speed) == 'DONE':
                     print 'Killing ', self.name
                     return 'KILL'
-            except:
-                # Empty Queue
-                pass
+            except Empty:
+                pass    # Not concerned with empty queue reads
 
             if link.absolute_url not in self.history:
                 ln = link.absolute_url
@@ -188,8 +214,8 @@ class Spider:
                         self.stats['err'].append(
                             { 'error': str(e),'url':ln }
                             )
-            else:
-                self.stats['external_links_skipped'] += 1
+                else:
+                    self.stats['links_skipped'] += 1
         return
 
 def prep_browser(args):
@@ -203,25 +229,14 @@ def prep_browser(args):
     ua = 'PokeyBot/1.0 (+https://pokeybill.us/bots/)'
 
     # With the user-agent vary option, substitute your own ua strings
+    # must be placed within the docs directory in a file ua.txt
     if args.ua is not None:
         ua = args.ua
     else:
         if args.vary:
-            possibles = [
-                'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) ' \
-                + 'Gecko/2008071615 Fedora/3.0.1-1.fc9 Firefox/3.0.1',
-                'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) ' \
-                + 'AppleWebKit/525.19 (KHTML, like Gecko) ' \
-                + 'Chrome/1.0.154.53 Safari/525.19',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) ' \
-                + 'AppleWebKit/537.36 (KHTML, like Gecko) ' \
-                + 'Chrome/40.0.2214.38 Safari/537.36',
-                'Mozilla/5.0 (Linux; U; Android 2.3.5; zh-cn; ' \
-                + 'HTC_IncredibleS_S710e Build/GRJ90) ' \
-                + 'AppleWebKit/533.1 (KHTML, like Gecko) ' \
-                + 'Version/4.0 Mobile Safari/533.1'
-                ]
-            ua = possibles[random.randint(1,len(possibles)-1)]
+            with open('../docs/ua.txt','rb') as useragents:
+                possibles = [l for l in useragents.readlines() if l.rstrip()]
+            ua = possibles[random.randint(0,len(possibles)-1)]
 
     headers = [('User-Agent', ua)]
 
@@ -231,7 +246,7 @@ def prep_browser(args):
         ),
         ('Accept-Language', 'en-gb,en;q=0.5'),
         ('Accept-Charset', 'ISO-8859-1,utf-8;q=0.7,*;q=0.7'),
-        ('Keep-Alive', '115'),
+        ('Keep-Alive', str(args.maxtime)),
         ('Connection', 'keep-alive'),
         ('Cache-Control', 'max-age=0'),
         ]:
@@ -248,32 +263,37 @@ def prep_browser(args):
 
 def report(args):
     stats = args.s
-
-    bar = '============================='
-    print '\n', bar
-    print 'Links crawled    : {}'.format(stats.crawled_count)
     try:
-        avg_time = sum(stats.times)/float(len(stats.times))
-        print 'Avg load time    : {:.5f}'.format(avg_time)
-    except:
-        print '0',
-    else:
+        bar = '============================='
+        print '\n', bar
+        print 'Links crawled    : {}'.format(stats.crawled_count)
+        try:
+            avg_time = sum(stats.times)/float(len(stats.times))
+            print 'Avg load time    : {:.5f}'.format(avg_time)
+        except:
+            print '0',
         print '\tMax time : {:.5f}'.format(max(stats.times))
         print '\tMin time : {:.5f}'.format(min(stats.times))
         print '\tTotal    : {:.5f}'.format(sum(stats.times))
         print '\nAvg URLs/page    : {:.5f}'.format(sum(stats.url_counts)/float(len(stats.url_counts)))
         print 'URLs skipped      : {}'.format(stats.external_skipped)
-    print '\nErrors hit       : {}'.format(len(stats.err))
-    if len(stats.err)>0:
-        if raw_input('\tView error detail? (y/n) > ').lower()=='y':
-            print '\tDisplaying top 5 errors'
-            srtd_list = sorted(
-                            stats.err.items(),
-                            key=operator.itemgetter(1)
-                            )
-            for key in srtd_list[:5]:
-                print '\t{}\n\t\tCount : {}'.format(key,stats.err[key])
-    print bar
+
+        url_err_set = set(stats.err['urls'])
+        print '\nURLs with Errors  : {}'.format(len(url_err_set))
+        print 'Errors returned   : {}'.format(len(stats.err['errors']))
+        if len(url_err_set)>0:
+            if raw_input('- View error detail? (y/n) > ').lower()=='y':
+                print '- Displaying top 5 errors'
+                srtd_list = sorted(
+                                stats.err['errors'].items(),
+                                key=operator.itemgetter(1)
+                                )
+                for key in srtd_list[:5]:
+                    print '\t{} :: Count : {}'.format(*key)
+        print bar
+    except Exception as e:
+        if args.debug: raise
+        print '[*] Exception in report(): {},{}'.format(e,str(e))
 
 def kill_jobs(jobs,q,r,s):
     results = []
@@ -291,27 +311,32 @@ def kill_jobs(jobs,q,r,s):
     while True:
         try:
             result = r.get(True,1)
+            #print '[*] Received from queue : {}'.format(result)
             count_beans(result,s)
         except Empty:
             break
         except:
+            raise
             continue
 
 def count_beans(stats,s):
-    s.crawled(stats['visited'],stats['url_counts'],stats['external_urls_skipped'])
+    s.crawled(stats['visited'],stats['url_counts'],stats['links_skipped'])
     s.time(stats['times'])
     for e in stats['err']:
-        s.err(e)
+        s.error(e)
 
 if __name__=="__main__":
 
+    os.environ['http_proxy']=''
     args = parse_arguments()
     args.s = s = Stats()
-    q = Queue()
-    r = Queue()
+    q = Queue() # Multiprocessing send queue
+    r = Queue() # Multiprocessing receive queue
     jobs = []
+    fail = False
 
     try:
+        # Start the worker processes
         for i in range(args.procs):
             p = Process(
                         target = Spider,
@@ -320,19 +345,22 @@ if __name__=="__main__":
             p.start()
             jobs.append(p)
 
+        # Wait for the maximum execution time to expire
         time.sleep(args.maxtime)
         print 'Times up!'
     except KeyboardInterrupt:
         print '\nKeyboard interrupt detected!'
-        fail = False
     except Exception as e:
         fail = True
-        raise
+        if args.debug: raise
+        print '[*] Error Encountered : {},{}'.format(e,str(e))
     else:
-        fail = False
         print '[*] Crawl completed successfully'
     finally:
-        kill_jobs(jobs,q,r,s)
-        if args.report and not fail: report(args)
-        if not fail: sys.exit(0)
-        sys.exit(1)
+        try:
+            kill_jobs(jobs,q,r,s)
+            if args.report and not fail: report(args)
+            if not fail: sys.exit(0)
+            raise AssertionError('Execution Failed!')
+        except:
+            sys.exit(1)
