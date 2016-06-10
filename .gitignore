@@ -92,3 +92,4 @@ ENV/
 *.cfg
 strace_crawl*
 ua.txt
+*.swp
