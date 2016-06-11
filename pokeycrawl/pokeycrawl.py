@@ -19,7 +19,7 @@ import argparse
 import os, sys
 import operator
 
-from  multiprocessing import Process, Queue
+from  multiprocessing import Process, Queue, cpu_count
 # Multiprocessing Queue inherits from Queue, need to import error classes
 # from the stdlib Queue
 from Queue import Empty
@@ -31,23 +31,25 @@ def parse_arguments():
 
     parser.add_argument('url',type=str,help='The URL to crawl')
     parser.add_argument('-s','--speed',type=float,default=0.25,
-                help='set the crawl speed (defaults to 0.25s between clicks)')
+                help='set the crawl speed (defaults to 0.25s)')
     parser.add_argument('-v','--vary',action='store_true',
                 help='vary the user-agent')
     parser.add_argument('-d','--debug',action='store_true',
                 help='enable debug (verbose) messages')
     parser.add_argument('-p','--procs',type=int,default=4,
-                choices=range(1,6),help='Concurrent processes (max 5)')
+                help='concurrent processes (~=simulated visitors)')
     parser.add_argument('-r','--report',action='store_true',
                 help='display post-execution summary')
+    parser.add_argument('-i','--index', action='store_true',
+                help='stores an index in tests/ in the format URL_EPOCH')
     parser.add_argument('--ua',type=str,
-                help='specify a user-agent (overrides -v, def=firefox)')
+                help='specify a user-agent (overrides -v)')
     parser.add_argument('--gz',action='store_true',
                 help='accept gzip compression (experimental)')
     parser.add_argument('--robots', action='store_true',
                 help='honor robots.txt directives')
     parser.add_argument('--maxtime',type=int,default=20,
-                help='Max run time in seconds')
+                help='max run time in seconds')
     parser.add_argument('--verbose',action='store_true',
                 help='displays all header and http debug info')
     parser.add_argument('--silent',action='store_true',
@@ -76,6 +78,11 @@ class Stats:
         self.times = []
         self.url_counts = []
         self.external_skipped = 0
+        self.unique_urls = []
+
+    def urls(self,urls):
+        self.unique_urls.append(urls)
+        self.unique_urls = list(set(self.unique_urls))
 
     def crawled(self,count,url_counts,external_skipped):
         # increment the crawled_count
@@ -117,6 +124,7 @@ class Spider:
     def __init__(self,prms):
         # Takes any argument-containing namespace
         self.args,(self.q,self.r),s = prms
+        self.start = time.clock()
         self.result = None
         if self.args.debug:
             print "Spider spawned - PID {}".format(os.getpid())
@@ -135,7 +143,8 @@ class Spider:
                 'err':[],
                 'url_counts':[],
                 'links_skipped':0,
-                'ip':self.ip
+                'ip':self.ip,
+                'urls':[self.url]
                 }
 
         # Grab the current worker process id
@@ -143,6 +152,7 @@ class Spider:
                     os.getpid()
                     )
 
+        if self.args.debug: print '- {} :: crawl commencing'.format(self.name)
         # Start the crawl
         try:
             if self.ip is not None:
@@ -152,15 +162,24 @@ class Spider:
             pass    # Skip processing for KeyboardInterrupts
         except:
             raise   # Raise exceptions
-        finally:
-            try:
-                self.stats['visited'] = len(self.history)
-                self.r.put(self.stats)
-            except:
-                raise
+
+        if self.args.debug: print '- {} :: crawl completed in {}s'.format(
+                                                        self.name,
+                                                        time.clock()-self.start
+                                                        )
+
+        self.stats['visited'] = len(self.history)
+        self.stats['urls'].extend(self.history)
+        self.r.put(self.stats)
+
+        while True:
+            time.sleep(0.1)
+            if self.q.get(True,self.args.speed) is None:
+                if args.debug: print '- {} :: exiting'.format(self.name)
+                break
 
     def prep_url(self,url):
-        return 'http://'+url if 'http' not in url else url
+        return 'http://'+url if 'http://' not in url else url
 
     def dig(self,dom):
         if dom in self.cached_ips: return self.cached_ips[dom]
@@ -176,7 +195,7 @@ class Spider:
         return ip
 
     def get_links(self, url):
-        if not self.args.silent: print '{} : Crawling '.format(self.name), url
+        if not self.args.silent: print '- {} :: crawling '.format(self.name), url
         start = time.clock()
         try:
             req = self.browser.open(url)
@@ -187,14 +206,20 @@ class Spider:
                 { 'error': str(e),'url':url }
                 )
 
-
         self.stats['times'].append(time.clock()-start)
-        self.stats['url_counts'].append(len([ln for ln in self.browser.links()]))
+        links = [ln for ln in self.browser.links()]
+        self.stats['url_counts'].append(len(links))
+
+        if self.args.debug: print '- {} :: found {} links on {}'.format(
+                                                    self.name,
+                                                    len(links),
+                                                    url
+                                                    )
 
         for link in self.browser.links():
             try:
-                if self.q.get(True,self.args.speed) == 'DONE':
-                    print 'Killing ', self.name
+                if self.q.get(True,self.args.speed) is 'DONE':
+                    if self.args.debug: print '- {} :: KILL received'.format(self.name)
                     return 'KILL'
             except Empty:
                 pass    # Not concerned with empty queue reads
@@ -295,45 +320,96 @@ def report(args):
         if args.debug: raise
         print '[*] Exception in report(): {},{}'.format(e,str(e))
 
-def kill_jobs(jobs,q,r,s):
+def kill_jobs(args,jobs,q,r,s):
     results = []
-    while any([j.is_alive() for j in jobs]):
-        for j in jobs:
-            try:
-                q.put('DONE',False)
-            except:
-                print 'Queue full, skipping put'
-                continue
 
+    if args.debug: print '- {} :: beginning cleanup'.format(args.parent_name)
     for j in jobs:
-        j.join()
+        try:
+            q.put('DONE',False)
+        except:
+            if args.debug: print '- {} :: queue full, skipping put'.format(args.parent_name)
+            continue
 
     while True:
         try:
             result = r.get(True,1)
-            #print '[*] Received from queue : {}'.format(result)
+            if args.debug: print '- {} :: received from queue : {}'.format(
+                                                                args.parent_name,
+                                                                result
+                                                                )
             count_beans(result,s)
         except Empty:
             break
         except:
-            raise
+            if args.debug: raise
             continue
 
+    if args.debug: print '- {} :: sending term signals'.format(args.parent_name)
+    for j in jobs:
+        q.put(None,False)
+
+    if args.debug: print '- {} :: joining jobs'.format(args.parent_name)
+    for j in jobs:
+        j.join(1)
+
+    if args.debug: print '- {} :: cleaning up jobs'.format(args.parent_name)
+    # Clean up stalling processes (data-destructive!)
+    if any([j.is_alive() for j in jobs]):
+        for j in jobs:
+            j.terminate()
+
+    if args.debug: print '- {} kill routine completed'.format(args.parent_name)
+
 def count_beans(stats,s):
+    # Calls the various statistics-gathering methods of Stats
     s.crawled(stats['visited'],stats['url_counts'],stats['links_skipped'])
     s.time(stats['times'])
     for e in stats['err']:
         s.error(e)
+    s.urls(stats['urls'])
+
+def check_args(args):
+    # Operator and logical assertions
+
+    # >5 begins to see noticeable slowness on some machines
+    # use multiple sources for higher load simulations
+    max_procs = cpu_count()*5
+    if args.procs > max_procs:
+        msg = '[!] Proc count over max ({}, cpu count x 5) - use this limit? > '.format(max_procs)
+        # use raw_input so it is always str()
+        if raw_input(msg).upper()=='Y':
+            args.procs = max_procs
+
+    if args.debug:
+        args.silent = False
+
+    if args.index:
+        base_path = os.path.dirname(__file__)
+        fpath = '{}/{}_{}.idx'.format(
+                base_path,
+                args.url.replace(' ',''),
+                int(time.time())
+                )
+        print '[*] Index file : {}'.format(fpath)
+        args.idx_path = fpath
+
+def write_index(args,s):
+    with open(args.idx_path,'w+') as ofile:
+        ofile.writelines(s.unique_urls)
 
 if __name__=="__main__":
 
     os.environ['http_proxy']=''
     args = parse_arguments()
     args.s = s = Stats()
+    check_args(args)    # Basic input validation
     q = Queue() # Multiprocessing send queue
     r = Queue() # Multiprocessing receive queue
     jobs = []
     fail = False
+
+    args.parent_name = 'Crawler {}'.format(os.getpid())
 
     try:
         # Start the worker processes
@@ -358,9 +434,11 @@ if __name__=="__main__":
         print '[*] Crawl completed successfully'
     finally:
         try:
-            kill_jobs(jobs,q,r,s)
+            kill_jobs(args,jobs,q,r,s)
+            if args.index: write_index(args,s)
             if args.report and not fail: report(args)
+            if args.debug: print '- {} :: killing me'.format(args.parent_name)
             if not fail: sys.exit(0)
-            raise AssertionError('Execution Failed!')
+            sys.exit(1)
         except:
             sys.exit(1)
