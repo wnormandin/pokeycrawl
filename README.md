@@ -21,8 +21,8 @@ or
 
 ```
 $ python pokeycrawl.py --help
-usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [--ua UA]
-                     [--gz] [--robots] [--maxtime MAXTIME] [--verbose]
+usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [-i INDEX_FILE]
+                     [--ua UA][--gz] [--robots] [--maxtime MAXTIME] [--verbose]
                      [--silent]
                      url
 
