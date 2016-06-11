@@ -21,8 +21,8 @@ or
 
 ```
 $ python pokeycrawl.py --help
-usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [-i INDEX_FILE]
-                     [--ua UA][--gz] [--robots] [--maxtime MAXTIME] [--verbose]
+usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [-i] [--ua UA]
+                     [--gz] [--robots] [--maxtime MAXTIME] [--verbose]
                      [--silent]
                      url
 
@@ -34,14 +34,15 @@ optional arguments:
   -s SPEED, --speed SPEED
                         set the crawl speed (defaults to 0.25s)
   -v, --vary            vary the user-agent
-  -d, --debug           enable debug messages (overrides --silent)
-  -p, --procs           concurrent processes (~=simulated visitors)
+  -d, --debug           enable debug (verbose) messages
+  -p PROCS, --procs PROCS
+                        concurrent processes (~=simulated visitors)
   -r, --report          display post-execution summary
-  -i, --index           specify an output file for indexing (stored in tests/)
+  -i, --index           stores an index in tests/ in the format URL_EPOCH
   --ua UA               specify a user-agent (overrides -v)
   --gz                  accept gzip compression (experimental)
   --robots              honor robots.txt directives
-  --maxtime MAXTIME     max run time in seconds (0 for no limit)
+  --maxtime MAXTIME     max run time in seconds
   --verbose             displays all header and http debug info
   --silent              silences URL crawl notifications
 ```
