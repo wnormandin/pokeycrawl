@@ -80,9 +80,19 @@ class Stats:
         self.external_skipped = 0
         self.unique_urls = []
 
-    def urls(self,urls):
-        self.unique_urls.append(urls)
-        self.unique_urls = list(set(self.unique_urls))
+    def urls(self,new):
+
+        def __unique(visited):
+            # visited must be sorted
+            prev = object()
+            for url in visited:
+                if url == prev:
+                    continue
+                yield url
+                prev = url
+
+        self.unique_urls.append(new)
+        self.unique_urls = list(__unique(sorted(self.unique_urls)))
 
     def crawled(self,count,url_counts,external_skipped):
         # increment the crawled_count
@@ -103,31 +113,17 @@ class Stats:
         except:
             self.err['errors'][deets['error']] = 1
 
-def bean_wrap(cls):
-
-    # Allows returns other than the class instance
-    # overriding the default invocation behavior
-    def wrapper(args,):
-
-        instance = cls(args,)
-        if args[0].debug:
-            print 'Received : ', instance.retval
-        args[1].put(instance.retval)
-
-    return wrapper
-
-#@bean_wrap
 class Spider:
 
     """ Spider superclass, contains all essential methods """
 
     def __init__(self,prms):
         # Takes any argument-containing namespace
-        self.args,(self.q,self.r),s = prms
+        self.args,self.q,s = prms
         self.start = time.clock()
         self.result = None
         if self.args.debug:
-            print "Spider spawned - PID {}".format(os.getpid())
+            print "[*] Spider spawned - PID {}".format(os.getpid())
         self.args = args
         self.cached_ips = {}
         self.history = []
@@ -148,7 +144,7 @@ class Spider:
                 }
 
         # Grab the current worker process id
-        self.name = 'Worker ({})'.format(
+        self.name = 'Worker +{}'.format(
                     os.getpid()
                     )
 
@@ -170,13 +166,7 @@ class Spider:
 
         self.stats['visited'] = len(self.history)
         self.stats['urls'].extend(self.history)
-        self.r.put(self.stats)
-
-        while True:
-            time.sleep(0.1)
-            if self.q.get(True,self.args.speed) is None:
-                if args.debug: print '- {} :: exiting'.format(self.name)
-                break
+        self.q.put(self.stats,1)
 
     def prep_url(self,url):
         return 'http://'+url if 'http://' not in url else url
@@ -218,8 +208,8 @@ class Spider:
 
         for link in self.browser.links():
             try:
-                if self.q.get(True,self.args.speed) is 'DONE':
-                    if self.args.debug: print '- {} :: KILL received'.format(self.name)
+                if self.q.get(True,1) is None:
+                    if self.args.debug: print '- {} :: poison pill received'.format(self.name)
                     return 'KILL'
             except Empty:
                 pass    # Not concerned with empty queue reads
@@ -307,40 +297,49 @@ def report(args):
         print '\nURLs with Errors  : {}'.format(len(url_err_set))
         print 'Errors returned   : {}'.format(len(stats.err['errors']))
         if len(url_err_set)>0:
-            if raw_input('- View error detail? (y/n) > ').lower()=='y':
+            if raw_input('View error detail? (y/n) > ').lower()=='y':
                 print '- Displaying top 5 errors'
                 srtd_list = sorted(
                                 stats.err['errors'].items(),
                                 key=operator.itemgetter(1)
                                 )
                 for key in srtd_list[:5]:
-                    print '\t{} :: Count : {}'.format(*key)
+                    print '- {} :: {} :: Count : {}'.format(args.parent_name,args[0],args[1])
         print bar
     except Exception as e:
         if args.debug: raise
         print '[*] Exception in report(): {},{}'.format(e,str(e))
 
-def kill_jobs(args,jobs,q,r,s):
+def kill_jobs(args,jobs,q,s):
     results = []
 
     if args.debug: print '- {} :: beginning cleanup'.format(args.parent_name)
     for j in jobs:
         try:
-            q.put('DONE',False)
+            q.put(None,1)
         except:
             if args.debug: print '- {} :: queue full, skipping put'.format(args.parent_name)
             continue
 
+    returned = 0
     while True:
         try:
-            result = r.get(True,1)
-            if args.debug: print '- {} :: received from queue : {}'.format(
-                                                                args.parent_name,
-                                                                result
-                                                                )
-            count_beans(result,s)
+            result = q.get(True,1)
+            if result == None:
+                q.put(None,1)   # push back any poison pills removed
+            else:
+                if args.debug: print '- {} :: received from queue : {}'.format(
+                                                            args.parent_name,
+                                                            result
+                                                            )
+                count_beans(result,s)
+                returned += 1
+
+                if returned >= args.procs:
+                    break
+
         except Empty:
-            break
+            continue
         except:
             if args.debug: raise
             continue
@@ -355,11 +354,11 @@ def kill_jobs(args,jobs,q,r,s):
 
     if args.debug: print '- {} :: cleaning up jobs'.format(args.parent_name)
     # Clean up stalling processes (data-destructive!)
-    if any([j.is_alive() for j in jobs]):
+    if any(j.is_alive() for j in jobs):
         for j in jobs:
             j.terminate()
 
-    if args.debug: print '- {} kill routine completed'.format(args.parent_name)
+    if args.debug: print '- {} :: kill routine completed'.format(args.parent_name)
 
 def count_beans(stats,s):
     # Calls the various statistics-gathering methods of Stats
@@ -385,9 +384,12 @@ def check_args(args):
         args.silent = False
 
     if args.index:
-        base_path = os.path.dirname(__file__)
+        base_path = os.path.dirname(os.path.realpath(__file__))
+        if args.debug: print '- {} :: base path - {}'.format(args.parent_name,base_path)
+        path_list = base_path.split('/')[:-1]
+        path_list.append('tests')
         fpath = '{}/{}_{}.idx'.format(
-                base_path,
+                '/'.join(path_list),
                 args.url.replace(' ',''),
                 int(time.time())
                 )
@@ -395,50 +397,67 @@ def check_args(args):
         args.idx_path = fpath
 
 def write_index(args,s):
+    if args.debug: print '- {} :: unique urls : {}'.format(args.parent_name,s.unique_urls)
     with open(args.idx_path,'w+') as ofile:
-        ofile.writelines(s.unique_urls)
+        ofile.writelines(str(s.unique_urls))
+
+def do_progress_bar(max_time):
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+    start = time.clock()
+    max_width = 30          # Progress bar width
+    interval = max_time/float(max_width)  # loop interval will scale
+    print 'loop_interval = {}'.format(interval)
+    print('@'),
+    while True:
+        if max_width <= 0:
+            return
+        else:
+            print('>'),
+            time.sleep(interval)
+            max_width -= 1
 
 if __name__=="__main__":
 
     os.environ['http_proxy']=''
     args = parse_arguments()
     args.s = s = Stats()
+    args.parent_name = 'Crawler {}'.format(os.getpid())
     check_args(args)    # Basic input validation
-    q = Queue() # Multiprocessing send queue
-    r = Queue() # Multiprocessing receive queue
+    q = Queue() # Multiprocessing queue
     jobs = []
     fail = False
 
-    args.parent_name = 'Crawler {}'.format(os.getpid())
-
     try:
         # Start the worker processes
+        if args.debug: print '- {} :: starting worker processes'.format(args.parent_name)
         for i in range(args.procs):
             p = Process(
                         target = Spider,
-                        args = ((args,(q,r),s),)
+                        args = ((args,q,s),)
                         )
             p.start()
             jobs.append(p)
 
         # Wait for the maximum execution time to expire
-        time.sleep(args.maxtime)
-        print 'Times up!'
+        if not args.verbose and not args.debug and args.silent:
+            do_progress_bar(args.maxtime)
+        else:
+            time.sleep(args.maxtime)
+        print "[*] Time's up!"
     except KeyboardInterrupt:
-        print '\nKeyboard interrupt detected!'
+        print '- {} :: Keyboard interrupt detected!'.format(args.parent_name)
     except Exception as e:
         fail = True
         if args.debug: raise
         print '[*] Error Encountered : {},{}'.format(e,str(e))
     else:
         print '[*] Crawl completed successfully'
-    finally:
-        try:
-            kill_jobs(args,jobs,q,r,s)
-            if args.index: write_index(args,s)
-            if args.report and not fail: report(args)
-            if args.debug: print '- {} :: killing me'.format(args.parent_name)
-            if not fail: sys.exit(0)
-            sys.exit(1)
-        except:
-            sys.exit(1)
+
+    try:
+        kill_jobs(args,jobs,q,s)
+        if args.index: write_index(args,s)
+        if args.report and not fail: report(args)
+        if args.debug: print '- {} :: killing me'.format(args.parent_name)
+    except:
+        if args.debug: raise
+        sys.exit(1)
