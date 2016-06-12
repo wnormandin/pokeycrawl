@@ -47,4 +47,4 @@ optional arguments:
   --silent              silences URL crawl notifications
 ```
 ---
-Usage [examples][./EXAMPLES.md]
+Usage [examples](./EXAMPLES.md)
