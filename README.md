@@ -3,7 +3,7 @@
 
 Pokeycrawl is a Python 2.7 Linux tool allowing the crawling of websites
 in order to load test (with multiprocessing) or store a site index.
-
+---
 ####Installation
 
 ```
@@ -16,7 +16,7 @@ or
 # cd pokeycrawl
 # python setup.py install
 ```
-
+---
 ####Usage
 
 ```
@@ -46,3 +46,5 @@ optional arguments:
   --verbose             displays all header and http debug info
   --silent              silences URL crawl notifications
 ```
+---
+Usage [examples][./EXAMPLES.md]
