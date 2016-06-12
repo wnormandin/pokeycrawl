@@ -154,10 +154,10 @@ class Spider:
             if self.ip is not None:
                self.get_links(self.url)
                self.stats['visited'] = len(self.history)
-        except KeyboardInterrupt:
-            pass    # Skip processing for KeyboardInterrupts
-        except:
-            raise   # Raise exceptions
+        except Exception as e:
+            if self.args.debug: raise
+            print '- {} :: error encountered : {}'.format(self.name,e)
+            sys.exit(0)
 
         if self.args.debug: print '- {} :: crawl completed in {}s'.format(
                                                         self.name,
@@ -290,7 +290,7 @@ def report(args):
         print '\tMax time : {:.5f}'.format(max(stats.times))
         print '\tMin time : {:.5f}'.format(min(stats.times))
         print '\tTotal    : {:.5f}'.format(sum(stats.times))
-        print '\nAvg URLs/page    : {:.5f}'.format(sum(stats.url_counts)/float(len(stats.url_counts)))
+        print '\nAvg URLs/page    : {:.2f}'.format(sum(stats.url_counts)/float(len(stats.url_counts)))
         print 'URLs skipped      : {}'.format(stats.external_skipped)
 
         url_err_set = set(stats.err['urls'])
@@ -399,17 +399,19 @@ def check_args(args):
 def write_index(args,s):
     if args.debug: print '- {} :: unique urls : {}'.format(args.parent_name,s.unique_urls)
     with open(args.idx_path,'w+') as ofile:
-        ofile.writelines(str(s.unique_urls))
+        ofile.writelines(url for url in s.unique_urls)
 
+# If --silent is used without -d|--debug or --verbose, show progress bar
 def do_progress_bar(max_time):
+    # Disable output buffering for inline updates
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
     start = time.clock()
-    max_width = 30          # Progress bar width
+    max_width = 40          # Progress bar width
     interval = max_time/float(max_width)  # loop interval will scale
-    print 'loop_interval = {}'.format(interval)
     print('@'),
     while True:
         if max_width <= 0:
+            print('@')
             return
         else:
             print('>'),
@@ -446,10 +448,13 @@ if __name__=="__main__":
         print "[*] Time's up!"
     except KeyboardInterrupt:
         print '- {} :: Keyboard interrupt detected!'.format(args.parent_name)
+        kill_jobs(args,jobs,q,s)
+        sys.exit(0)
     except Exception as e:
         fail = True
         if args.debug: raise
         print '[*] Error Encountered : {},{}'.format(e,str(e))
+        sys.exit(1)
     else:
         print '[*] Crawl completed successfully'
 
