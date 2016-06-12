@@ -18,7 +18,7 @@ setup(
         ],
     author='Bill Normandin',
     author_email='bill@pokeybill.us',
-    url='https://github.com/wnormandin/pokeycrawl',
+    url='https://github.com/wnormandin/pokeycrawl/releases/tag/0.1.1a1',
     packages=find_packages(exclude=['docs','tests']),
     license='MIT',
     description='A python webcrawler',
