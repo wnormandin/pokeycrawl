@@ -96,7 +96,7 @@ Verbose output will include program and HTTP debugging information, HTTP headers
 ```
 $ python pokeycrawl.py -p 1 --maxtime 1 --verbose systempoetry.com
 - Worker +10158 :: crawling  http://systempoetry.com
-send: 'GET / HTTP/1.1\r\nAccept-Encoding: identity\r\nAccept-Language: en-gb,en;q=0.5\r\nConnection: close\r\nKeep-Alive: 1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nUser-Agent: PokeyBot/1.0 (+https://pokeybill.us/bots/)\r\nAccept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\nHost: systempoetry.com\r\nCache-Control: max-age=0\r\n\r\n'
+send: 'GET / HTTP/1.1\r\nAccept-Encoding: identity\r\nAccept-Language: en-us,en;q=0.5\r\nConnection: close\r\nKeep-Alive: 1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nUser-Agent: PokeyBot/1.0 (+https://pokeybill.us/bots/)\r\nAccept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\nHost: systempoetry.com\r\nCache-Control: max-age=0\r\n\r\n'
 reply: 'HTTP/1.1 200 OK\r\n'
 header: Date: Sun, 12 Jun 2016 14:55:08 GMT
 header: Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips PHP/5.4.16
