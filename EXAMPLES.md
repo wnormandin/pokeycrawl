@@ -69,9 +69,9 @@ Errors returned   : 0
 ```
   - report breakdown
     - links crawled : the number of links visited (URLs/page is calculated with 'unvisited' URLs included)
-    - avg load time : the average time (in seconds) spent waiting for HTTP requests
-    - min/max times : the minimum and maximum HTTP request wait time
-    - total         : the total time spent waiting for HTTP requests
+    - avg load time : the average time (in seconds) spent waiting for HTTP reponses
+    - min/max times : the minimum and maximum HTTP reponse wait time
+    - total         : the total time spent waiting for HTTP reponses
     - avg urls/page : the average count of URLs (internal and external) detected per page
     - URLs skipped  : count of external URLs skipped in the crawl
     - URLs with Err : count of URLs which returned errors
