@@ -21,6 +21,8 @@ import operator
 import logging
 
 from  multiprocessing import Process, Queue, cpu_count
+from mechanize import BrowserStateError
+
 # Multiprocessing Queue inherits from Queue, need to import error classes
 # from the stdlib Queue
 from Queue import Empty
@@ -47,7 +49,7 @@ def setup_logger(args):
             print 'file_handler.level : {}'.format(file_handler.level)
         logger.addHandler(file_handler)
 
-    def _get_level(args):
+    def _get_level():
         if args.silent and args.logging and not args.debug:
             return logging.DEBUG
         if args.debug:
@@ -77,7 +79,7 @@ def setup_logger(args):
         cfmt = logging.StreamHandler('%(message)s')
     
     logger = logging.getLogger('pokeycrawl')
-    logger.setLevel(_get_level(args))
+    logger.setLevel(_get_level())
     
     # Add the console handler if not in silent mode
     if not (args.silent and args.logging and not args.debug) or not args.silent:
@@ -91,7 +93,7 @@ def setup_logger(args):
 
         __file_logging(*params)
 
-    if args.debug:
+    if args.debug and args.verbose:
         print 'logger.handlers : {}'.format(logger.handlers)
 
     return logger
@@ -169,6 +171,9 @@ class Stats:
                 yield url
                 prev = url
 
+        def __requests():
+            # Add total request counter
+
         self.unique_urls.append(new)
         self.unique_urls = list(__unique(sorted(self.unique_urls)))
 
@@ -197,14 +202,13 @@ class Spider:
 
     def __init__(self,prms):
         # Takes any argument-containing namespace
-        self.args,self.q,s = prms
+        self.q,s = prms
         self.start = time.clock()
         self.result = None
         log.debug("[*] Spider spawned - PID {}".format(os.getpid()))
-        self.args = args
         self.cached_ips = {}
         self.history = []
-        self.browser = prep_browser(args)
+        self.browser = prep_browser()
         self.url = self.prep_url(args.url)
         self.ip = self.dig(urlparse.urlparse(self.url).hostname)
         self.exclude = []
@@ -233,7 +237,7 @@ class Spider:
                self.get_links(self.url)
                self.stats['visited'] = len(self.history)
         except Exception as e:
-            if self.args.debug: raise
+            if args.debug: raise
             log.error(' - {} :: error encountered : {}'.format(self.name,e))
             sys.exit(0)
 
@@ -254,6 +258,7 @@ class Spider:
         try:
             self.cached_ips[dom] = ip = socket.gethostbyname(dom)
         except Exception as e:
+            log.debug(' - exception raised in Spider.dig')
             self.stats['err'].append(
                 { 'error': str(e),'url':dom }
                 )
@@ -272,11 +277,12 @@ class Spider:
     def get_links(self, url):
         if self.poisoned():
             return 'KILL'
-        if not self.args.silent: print ' - {} :: crawling '.format(self.name), url
+        if not args.silent: print ' - {} :: crawling '.format(self.name), url
         start = time.clock()
         try:
             req = self.browser.open(url)
         except Exception as e:
+            log.debug(' - exception raised in Spider.get_links')
             self.stats['err'].append(
                 { 'error': str(e),'url':url }
                 )
@@ -304,16 +310,17 @@ class Spider:
                     try:
                         sig = self.get_links(ln)
                         if sig == 'KILL': return sig
+                    except BrowserStateError:
+                        pass # Move on to the next URL when state is unexpected
                     except Exception as e:
-                        self.exclude.append(ln)
-                        self.stats['err'].append(
-                            { 'error': str(e),'url':ln }
-                            )
+                        log.debug(' - unexpected exception in Spider.get_links(child)')
                 else:
                     self.stats['links_skipped'] += 1
         return
 
-def prep_browser(args):
+def prep_browser():
+    if args.verbose:
+        log.debug('[*] Preparing browser ({})'.format(os.getpid()))
 
     # Defaults :
     b = mechanize.Browser()
@@ -329,9 +336,19 @@ def prep_browser(args):
         ua = args.ua
     else:
         if args.vary:
-            with open('../docs/ua.txt','rb') as useragents:
-                possibles = [l for l in useragents.readlines() if l.rstrip()]
-            ua = possibles[random.randint(0,len(possibles)-1)]
+            log.debug(' - varying user-agent')
+            try:
+                with open('../docs/ua.txt','rb') as useragents:
+                    possibles = [l for l in useragents.readlines() if l.rstrip()]
+            except:
+                log.error(' - error reading docs/ua.txt')
+                if args.debug: raise
+                ua = 'PokeyBot/1.0 (+https://pokeybill.us/bots/)'
+            else:
+                ua = possibles[random.randint(0,len(possibles)-1)]
+
+    if args.verbose:
+        log.debug(' - user-agent : {}'.format(ua))
 
     headers = [('User-Agent', ua)]
 
@@ -356,7 +373,7 @@ def prep_browser(args):
 
     return b
 
-def report(args):
+def report():
     stats = args.s
     try:
         bar = '============================='
@@ -395,7 +412,7 @@ def report(args):
         if args.debug: raise
         log.info('[*] Exception in report(): {},{}'.format(e,str(e)))
 
-def kill_jobs(args,jobs,q,s):
+def kill_jobs(jobs,q,s):
     results = []
 
     log.debug(' - {} :: beginning cleanup'.format(args.parent_name))
@@ -501,7 +518,7 @@ def check_args():
         log.info('[*] Index file : {}'.format(fpath))
         args.idx_path = fpath
 
-def write_index(args,s):
+def write_index(s):
     log.debug(' - {} :: unique urls : {}'.format(args.parent_name,s.unique_urls))
     with open(args.idx_path,'w+') as ofile:
         ofile.writelines(url for url in s.unique_urls)
@@ -542,7 +559,7 @@ if __name__=="__main__":
         for i in range(args.procs):
             p = Process(
                         target = Spider,
-                        args = ((args,q,s),)
+                        args = ((q,s),)
                         )
             p.start()
             jobs.append(p)
@@ -555,7 +572,7 @@ if __name__=="__main__":
         log.info("[*] Time's up!")
     except KeyboardInterrupt:
         log.warning(' - {} :: Keyboard interrupt detected!'.format(args.parent_name))
-        kill_jobs(args,jobs,q,s)
+        kill_jobs(jobs,q,s)
         sys.exit(0)
     except Exception as e:
         fail = True
@@ -568,11 +585,11 @@ if __name__=="__main__":
         if args.verbose: 
             log.debug(' *  jobs : {}'.format([job.pid for job in jobs]))
 
-        kill_jobs(args,jobs,q,s)
-        if args.index: write_index(args,s)
+        kill_jobs(jobs,q,s)
+        if args.index: write_index(s)
         if args.report and not fail:
             log.debug(' - {} :: printing report'.format(args.parent_name)) 
-            report(args)
+            report()
         log.debug('[*] {} :: killing me'.format(args.parent_name))
     except:
         if args.debug: raise
