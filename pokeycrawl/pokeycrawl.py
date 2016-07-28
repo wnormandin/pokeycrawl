@@ -18,11 +18,83 @@ import time
 import argparse
 import os, sys
 import operator
+import logging
 
 from  multiprocessing import Process, Queue, cpu_count
 # Multiprocessing Queue inherits from Queue, need to import error classes
 # from the stdlib Queue
 from Queue import Empty
+
+def setup_logger(args):
+
+    def __console_logging(logger,cfmt):
+        cons_handler = logging.StreamHandler(sys.stdout)
+        cons_handler.setFormatter(cfmt)
+        cons_handler.setLevel(logger.level)
+        if args.debug and args.verbose:
+            print 'cons_handler : {}'.format(cons_handler)
+            print 'cons_handler.level : {}'.format(cons_handler.level)
+        logger.addHandler(cons_handler)
+
+    def __file_logging(logger,fpath='../tests/crawl.log'):
+        fpath = _resolve_path(fpath)
+        fmt = logging.Formatter('%(asctime)s |%(message)s')
+        file_handler = logging.FileHandler(fpath,'a')
+        file_handler.setFormatter(fmt)
+        file_handler.setLevel(logger.level)
+        if args.debug and args.verbose:
+            print 'file_handler : {}'.format(file_handler)
+            print 'file_handler.level : {}'.format(file_handler.level)
+        logger.addHandler(file_handler)
+
+    def _get_level(args):
+        if args.silent and args.logging and not args.debug:
+            return logging.DEBUG
+        if args.debug:
+            return logging.DEBUG
+        if args.verbose:
+            return logging.INFO
+        return logging.WARNING
+
+    def _touch(fpath):
+        if not os.path.exists(fpath):
+            with open(fpath, 'w+') as f:
+                return True
+        return False
+
+    def _resolve_path(fpath):
+        # Convert to absolute path, touch file
+        fpath = os.path.realpath(fpath)
+        result = _touch(fpath)
+        if result:
+            print('[*] Created {}'.format(fpath))
+        return fpath
+
+    # Setup console and file output based on command-line parameters
+    if args.debug and args.verbose:
+        cfmt = logging.StreamHandler('%(filename)s[%(process)d] > %(message)s')
+    else:
+        cfmt = logging.StreamHandler('%(message)s')
+    
+    logger = logging.getLogger('pokeycrawl')
+    logger.setLevel(_get_level(args))
+    
+    # Add the console handler if not in silent mode
+    if not (args.silent and args.logging and not args.debug) or not args.silent:
+        __console_logging(logger,cfmt)
+
+    if args.logging:
+        if args.logpath:
+            params = (logger,args.logpath,)
+        else:
+            params = (logger,)
+
+        __file_logging(*params)
+
+    if args.debug:
+        print 'logger.handlers : {}'.format(logger.handlers)
+
+    return logger
 
 def parse_arguments():
 
@@ -33,7 +105,7 @@ def parse_arguments():
     parser.add_argument('-s','--speed',type=float,default=0.25,
                 help='set the crawl speed (defaults to 0.25s)')
     parser.add_argument('-v','--vary',action='store_true',
-                help='vary the user-agent')
+                help='vary the user-agent (requires a list in docs/ua.txt)')
     parser.add_argument('-d','--debug',action='store_true',
                 help='enable debug (verbose) messages')
     parser.add_argument('-p','--procs',type=int,default=4,
@@ -54,6 +126,12 @@ def parse_arguments():
                 help='displays all header and http debug info')
     parser.add_argument('--silent',action='store_true',
                 help='silences URL crawl notifications')
+    parser.add_argument('-l','--logging', action='store_true',
+                help='enable logging')
+    parser.add_argument('--logpath', default=False,
+                help='specify a log path (defaults to ./text/crawl.log)')
+    parser.add_argument('-y','--assume-yes',action='store_true',
+                help='assumes a "yes" response to any prompts')
 
     # The --robots and --gz arguments are experimentally supported in 
     # mechanize, check your mechanize version for details and potential
@@ -122,14 +200,14 @@ class Spider:
         self.args,self.q,s = prms
         self.start = time.clock()
         self.result = None
-        if self.args.debug:
-            print "[*] Spider spawned - PID {}".format(os.getpid())
+        log.debug("[*] Spider spawned - PID {}".format(os.getpid()))
         self.args = args
         self.cached_ips = {}
         self.history = []
         self.browser = prep_browser(args)
         self.url = self.prep_url(args.url)
         self.ip = self.dig(urlparse.urlparse(self.url).hostname)
+        self.exclude = []
 
         # Each process aggregates site visit statistics
         # which are passed back via the stats Queue (r)
@@ -148,7 +226,7 @@ class Spider:
                     os.getpid()
                     )
 
-        if self.args.debug: print '- {} :: crawl commencing'.format(self.name)
+        log.debug(' - {} :: crawl commencing'.format(self.name))
         # Start the crawl
         try:
             if self.ip is not None:
@@ -156,13 +234,13 @@ class Spider:
                self.stats['visited'] = len(self.history)
         except Exception as e:
             if self.args.debug: raise
-            print '- {} :: error encountered : {}'.format(self.name,e)
+            log.error(' - {} :: error encountered : {}'.format(self.name,e))
             sys.exit(0)
 
-        if self.args.debug: print '- {} :: crawl completed in {}s'.format(
+        log.info(' - {} :: crawl completed in {}s'.format(
                                                         self.name,
                                                         time.clock()-self.start
-                                                        )
+                                                        ))
 
         self.stats['visited'] = len(self.history)
         self.stats['urls'].extend(self.history)
@@ -176,43 +254,46 @@ class Spider:
         try:
             self.cached_ips[dom] = ip = socket.gethostbyname(dom)
         except Exception as e:
-            if self.args.debug:
-                print '{} : '.format(dom),str(e)
             self.stats['err'].append(
                 { 'error': str(e),'url':dom }
                 )
             return None
         return ip
 
+    def poisoned(self):
+        try:
+            if self.q.get(True,1) is None:
+                log.debug(' - {} :: poison pill received'.format(self.name))
+                return True
+        except Empty:
+            if args.verbose: log.debug(' - {} :: empty queue read'.format(self.name))
+        return False
+
     def get_links(self, url):
-        if not self.args.silent: print '- {} :: crawling '.format(self.name), url
+        if self.poisoned():
+            return 'KILL'
+        if not self.args.silent: print ' - {} :: crawling '.format(self.name), url
         start = time.clock()
         try:
             req = self.browser.open(url)
         except Exception as e:
-            if self.args.debug:
-                print '{} : '.format(url),str(e)
             self.stats['err'].append(
                 { 'error': str(e),'url':url }
                 )
 
         self.stats['times'].append(time.clock()-start)
-        links = [ln for ln in self.browser.links()]
+        links = [ln for ln in self.browser.links() if ln not in self.exclude]
         self.stats['url_counts'].append(len(links))
 
-        if self.args.debug: print '- {} :: found {} links on {}'.format(
+        log.debug(' - {} :: found {} links on {}'.format(
                                                     self.name,
                                                     len(links),
                                                     url
-                                                    )
+                                                    ))
 
         for link in self.browser.links():
-            try:
-                if self.q.get(True,1) is None:
-                    if self.args.debug: print '- {} :: poison pill received'.format(self.name)
-                    return 'KILL'
-            except Empty:
-                pass    # Not concerned with empty queue reads
+            if self.poisoned():
+                return 'KILL'
 
             if link.absolute_url not in self.history:
                 ln = link.absolute_url
@@ -224,8 +305,7 @@ class Spider:
                         sig = self.get_links(ln)
                         if sig == 'KILL': return sig
                     except Exception as e:
-                        if self.args.debug:
-                            print '{} : '.format(ln),str(e)
+                        self.exclude.append(ln)
                         self.stats['err'].append(
                             { 'error': str(e),'url':ln }
                             )
@@ -281,44 +361,49 @@ def report(args):
     try:
         bar = '============================='
         print '\n', bar
-        print 'Links crawled    : {}'.format(stats.crawled_count)
+        print('Links crawled     : {}'.format(stats.crawled_count))
         try:
             avg_time = sum(stats.times)/float(len(stats.times))
-            print 'Avg load time    : {:.5f}'.format(avg_time)
+            print('Avg load time     : {:.5f}'.format(avg_time))
         except:
-            print '0',
-        print '\tMax time : {:.5f}'.format(max(stats.times))
-        print '\tMin time : {:.5f}'.format(min(stats.times))
-        print '\tTotal    : {:.5f}'.format(sum(stats.times))
-        print '\nAvg URLs/page    : {:.2f}'.format(sum(stats.url_counts)/float(len(stats.url_counts)))
-        print 'URLs skipped      : {}'.format(stats.external_skipped)
+            print('0')
+        print('\tMax time  : {:.5f}'.format(max(stats.times)))
+        print('\tMin time  : {:.5f}'.format(min(stats.times)))
+        print('\tTotal     : {:.5f}'.format(sum(stats.times)))
+        print('\nAvg URLs/page     : {:.2f}'.format(sum(stats.url_counts)/float(len(stats.url_counts))))
+        print('URLs skipped      : {}'.format(stats.external_skipped))
 
         url_err_set = set(stats.err['urls'])
-        print '\nURLs with Errors  : {}'.format(len(url_err_set))
-        print 'Errors returned   : {}'.format(len(stats.err['errors']))
+        print('\nURLs with Errors  : {}'.format(len(url_err_set)))
+        print('Errors returned   : {}'.format(len(stats.err['errors'])))
+        print bar, '\n'
+
+        # Option to display error list
         if len(url_err_set)>0:
-            if raw_input('View error detail? (y/n) > ').lower()=='y':
-                print '- Displaying top 5 errors'
+            if not args.assume_yes:
+                ch = raw_input('View error detail? (y/n) > ').lower()
+            if args.assume_yes or (ch=='y'):
+                print('[*] Displaying top 5 errors')
                 srtd_list = sorted(
                                 stats.err['errors'].items(),
                                 key=operator.itemgetter(1)
                                 )
                 for key in srtd_list[:5]:
-                    print '- {} :: {} :: Count : {}'.format(args.parent_name,args[0],args[1])
-        print bar
+                    print(' * {} : count[{}]'.format(key[0],key[1]))
+
     except Exception as e:
         if args.debug: raise
-        print '[*] Exception in report(): {},{}'.format(e,str(e))
+        log.info('[*] Exception in report(): {},{}'.format(e,str(e)))
 
 def kill_jobs(args,jobs,q,s):
     results = []
 
-    if args.debug: print '- {} :: beginning cleanup'.format(args.parent_name)
+    log.debug(' - {} :: beginning cleanup'.format(args.parent_name))
     for j in jobs:
         try:
             q.put(None,1)
         except:
-            if args.debug: print '- {} :: queue full, skipping put'.format(args.parent_name)
+            log.debug(' - {} :: queue full, skipping put'.format(args.parent_name))
             continue
 
     returned = 0
@@ -328,10 +413,16 @@ def kill_jobs(args,jobs,q,s):
             if result == None:
                 q.put(None,1)   # push back any poison pills removed
             else:
-                if args.debug: print '- {} :: received from queue : {}'.format(
+                if args.debug and args.verbose:
+                    log.debug(' - {} :: received from queue : {}'.format(
                                                             args.parent_name,
                                                             result
-                                                            )
+                                                            ))
+                else:
+                    log.debug(' - {} :: received {} items from queue'.format(
+                                                            args.parent_name,
+                                                            len(result)
+                                                            ))
                 count_beans(result,s)
                 returned += 1
 
@@ -344,21 +435,21 @@ def kill_jobs(args,jobs,q,s):
             if args.debug: raise
             continue
 
-    if args.debug: print '- {} :: sending term signals'.format(args.parent_name)
+    log.debug(' - {} :: sending term signals'.format(args.parent_name))
     for j in jobs:
         q.put(None,False)
 
-    if args.debug: print '- {} :: joining jobs'.format(args.parent_name)
+    log.debug(' - {} :: joining jobs'.format(args.parent_name))
     for j in jobs:
         j.join(1)
 
-    if args.debug: print '- {} :: cleaning up jobs'.format(args.parent_name)
+    log.debug(' - {} :: cleaning up jobs'.format(args.parent_name))
     # Clean up stalling processes (data-destructive!)
     if any(j.is_alive() for j in jobs):
         for j in jobs:
             j.terminate()
 
-    if args.debug: print '- {} :: kill routine completed'.format(args.parent_name)
+    log.debug(' - {} :: kill routine completed'.format(args.parent_name))
 
 def count_beans(stats,s):
     # Calls the various statistics-gathering methods of Stats
@@ -368,7 +459,14 @@ def count_beans(stats,s):
         s.error(e)
     s.urls(stats['urls'])
 
-def check_args(args):
+def user_prompt(msg):
+    if not args.assume_yes:
+        ch = raw_input(msg).upper()
+    if args.assume_yes or (ch=='Y'):
+        return True
+    return False
+
+def check_args():
     # Operator and logical assertions
 
     # >5 begins to see noticeable slowness on some machines
@@ -377,15 +475,22 @@ def check_args(args):
     if args.procs > max_procs:
         msg = '[!] Proc count over max ({}, cpu count x 5) - use this limit? > '.format(max_procs)
         # use raw_input so it is always str()
-        if raw_input(msg).upper()=='Y':
+        if user_prompt(msg):
             args.procs = max_procs
+            log.debug('\tuser changed max_procs to : {}'.format(max_procs))
+
+    if not args.logging and args.logpath:
+        msg = '[!] Log path specified, but logging is not enabled - enable logging? >'
+        if user_prompt(msg):
+            args.logging = True
+            log.debug('\tuser enabled logging')
 
     if args.debug:
         args.silent = False
 
     if args.index:
         base_path = os.path.dirname(os.path.realpath(__file__))
-        if args.debug: print '- {} :: base path - {}'.format(args.parent_name,base_path)
+        log.debug(' - {} :: base path - {}'.format(args.parent_name,base_path))
         path_list = base_path.split('/')[:-1]
         path_list.append('tests')
         fpath = '{}/{}_{}.idx'.format(
@@ -393,11 +498,11 @@ def check_args(args):
                 args.url.replace(' ',''),
                 int(time.time())
                 )
-        print '[*] Index file : {}'.format(fpath)
+        log.info('[*] Index file : {}'.format(fpath))
         args.idx_path = fpath
 
 def write_index(args,s):
-    if args.debug: print '- {} :: unique urls : {}'.format(args.parent_name,s.unique_urls)
+    log.debug(' - {} :: unique urls : {}'.format(args.parent_name,s.unique_urls))
     with open(args.idx_path,'w+') as ofile:
         ofile.writelines(url for url in s.unique_urls)
 
@@ -418,20 +523,22 @@ def do_progress_bar(max_time):
             time.sleep(interval)
             max_width -= 1
 
-if __name__=="__main__":
+args = parse_arguments()
+log = setup_logger(args)
 
+if __name__=="__main__":
     os.environ['http_proxy']=''
-    args = parse_arguments()
+    args.l = log
     args.s = s = Stats()
     args.parent_name = 'Crawler {}'.format(os.getpid())
-    check_args(args)    # Basic input validation
+    check_args()    # Basic input validation
     q = Queue() # Multiprocessing queue
     jobs = []
     fail = False
 
     try:
         # Start the worker processes
-        if args.debug: print '- {} :: starting worker processes'.format(args.parent_name)
+        log.debug(' - {} :: starting worker processes'.format(args.parent_name))
         for i in range(args.procs):
             p = Process(
                         target = Spider,
@@ -445,24 +552,30 @@ if __name__=="__main__":
             do_progress_bar(args.maxtime)
         else:
             time.sleep(args.maxtime)
-        print "[*] Time's up!"
+        log.info("[*] Time's up!")
     except KeyboardInterrupt:
-        print '- {} :: Keyboard interrupt detected!'.format(args.parent_name)
+        log.warning(' - {} :: Keyboard interrupt detected!'.format(args.parent_name))
         kill_jobs(args,jobs,q,s)
         sys.exit(0)
     except Exception as e:
         fail = True
         if args.debug: raise
-        print '[*] Error Encountered : {},{}'.format(e,str(e))
+        log.error('[*] Error Encountered : {},{}'.format(e,str(e)))
         sys.exit(1)
-    else:
-        print '[*] Crawl completed successfully'
 
     try:
+        log.debug("[*] @@ kill_jobs() @@")
+        if args.verbose: 
+            log.debug(' *  jobs : {}'.format([job.pid for job in jobs]))
+
         kill_jobs(args,jobs,q,s)
         if args.index: write_index(args,s)
-        if args.report and not fail: report(args)
-        if args.debug: print '- {} :: killing me'.format(args.parent_name)
+        if args.report and not fail:
+            log.debug(' - {} :: printing report'.format(args.parent_name)) 
+            report(args)
+        log.debug('[*] {} :: killing me'.format(args.parent_name))
     except:
         if args.debug: raise
         sys.exit(1)
+    else:
+        log.info('[*] Crawl completed successfully')
