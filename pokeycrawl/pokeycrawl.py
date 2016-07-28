@@ -173,6 +173,7 @@ class Stats:
 
         def __requests():
             # Add total request counter
+            pass
 
         self.unique_urls.append(new)
         self.unique_urls = list(__unique(sorted(self.unique_urls)))
