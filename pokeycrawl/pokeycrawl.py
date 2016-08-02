@@ -74,7 +74,7 @@ def setup_logger(args):
 
     # Setup console and file output based on command-line parameters
     if args.debug and args.verbose:
-        cfmt = logging.StreamHandler('%(filename)s[%(process)d] > %(message)s')
+        cfmt = logging.StreamHandler('%(asctime)s | %(filename)s[%(process)d] > %(message)s')
     else:
         cfmt = logging.StreamHandler('%(message)s')
     
