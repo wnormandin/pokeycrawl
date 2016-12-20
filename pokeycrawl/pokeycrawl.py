@@ -77,10 +77,10 @@ def setup_logger(args):
         cfmt = logging.StreamHandler('%(asctime)s | %(filename)s[%(process)d] > %(message)s')
     else:
         cfmt = logging.StreamHandler('%(message)s')
-    
+
     logger = logging.getLogger('pokeycrawl')
     logger.setLevel(_get_level())
-    
+
     # Add the console handler if not in silent mode
     if not (args.silent and args.logging and not args.debug) or not args.silent:
         __console_logging(logger,cfmt)
@@ -594,6 +594,7 @@ if __name__=="__main__":
         log.debug('[*] {} :: killing me'.format(args.parent_name))
     except:
         if args.debug: raise
+        log.error(sys.exc_info())
         sys.exit(1)
     else:
         log.info('[*] Crawl completed successfully')
