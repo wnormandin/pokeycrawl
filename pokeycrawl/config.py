@@ -10,16 +10,39 @@ PokeyCrawl configuration settings
 #############################
 
 #!# Global Defaults
-LOG_PATH='./text/crawl.log'
 
-""" Maximum execution time for worker processes """
-MAX_TIME=20
-""" Maximum concurrent worker threads """
-MAX_PROCS=4
-""" Delay between requests """
-CRAWL_SPEED=0.15
-""" Defaults to the PokeyBot UA string """
-USER_AGENT="PokeyBot/1.0 (+https://pokeybill.us/bots)"
+# Maximum execution time for worker processes
+args.maxtime=20
+# Maximum concurrent worker threads
+args.procs=4
+# Delay between requests
+args.speed=0.15
+# Defaults to the PokeyBot UA string
+args.ua="PokeyBot/1.0 (+https://pokeybill.us/bots)"
+# Vary the user-agent string from the file docs/ua.txt
+args.vary=False
+# Enable debug messages and error raising
+args.debug=True
+# Enable post-execution summary
+args.report=False
+# Create an index of the URLs crawled in /tests/URL_UNIXEPOCH
+args.index=False
+# GZip support (experimental in mechanize)
+args.gz=False
+# robots.txt support (experimental in mechanize)
+args.robots=False
+# Enable verbose messages
+args.verbose=False
+# Enable logging to file
+args.logging=False
+args.logpath='./text/crawl.log'
+# Assume 'Yes' to all prompts
+args.yes=False
+# Run diagnostic test, displays all parameters, verbose crawl
+# output without actually sending requests.
+args.test=False
+# Silence crawl messages, will enable the progress bar
+args.silent=False
 
 #!# WebsiteParser Settings
 """
@@ -28,7 +51,7 @@ will review returned HTML for forms to be
 passed to the FormCrawler workers in addition
 to the default sites
 """
-SITE_PARSE=False
+args.parse=False
 
 #!# Spider Settings
 
@@ -52,5 +75,5 @@ of normal web traffic, including PHP and database
 queries which are typically much more resource-
 intensive than simple page loads.
 """
-FORMS=False
+args.forms=False
 
