@@ -19,6 +19,7 @@ import argparse
 import os, sys
 import operator
 import logging
+import cookielib
 
 from  multiprocessing import Process, Queue, cpu_count
 from mechanize import BrowserStateError
@@ -104,8 +105,19 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('url',type=str,help='The URL to crawl')
-    parser.add_argument('-s','--speed',type=float,default=0.25,
-                help='set the crawl speed (defaults to 0.25s)')
+    parser.add_argument('-s','--speed',type=float,default=0.15,
+                help='set the crawl speed (defaults to 0.15s)')
+    parser.add_argument('-f','--forms',action='store_true',
+                help='submit (safe) dummy data to forms found in responses')
+                # http://www.pythonforbeginners.com/cheatsheet/python-mechanize-cheat-sheet
+                # ideas - add a list of page titles in the reporting
+                # report on the size of the data collected
+                #
+                # try login forms with dummy data:
+                # If the protected site didn't receive the authentication data you would
+                # end up with a 410 error in your face
+                # br.add_password('http://safe-site.domain', 'username', 'password')
+                # br.open('http://safe-site.domain')
     parser.add_argument('-v','--vary',action='store_true',
                 help='vary the user-agent (requires a list in docs/ua.txt)')
     parser.add_argument('-d','--debug',action='store_true',
@@ -194,25 +206,25 @@ class Stats:
         self.err['urls'].append(deets['url'])
         try:
             self.err['errors'][deets['error']] += 1
-        except:
+        except TypeError:
             self.err['errors'][deets['error']] = 1
 
 class Spider:
 
-    """ Spider superclass, contains all essential methods """
+    """ Workers will be Spider objects """
 
     def __init__(self,prms):
-        # Takes any argument-containing namespace
         self.q,s = prms
         self.start = time.clock()
         self.result = None
-        log.debug("[*] Spider spawned - PID {}".format(os.getpid()))
+        log.debug("[*] Spider spawned - PID {} (Worker)".format(os.getpid()))
         self.cached_ips = {}
         self.history = []
         self.browser = prep_browser()
         self.url = self.prep_url(args.url)
         self.ip = self.dig(urlparse.urlparse(self.url).hostname)
         self.exclude = []
+        self.is_poisoned=False
 
         # Each process aggregates site visit statistics
         # which are passed back via the stats Queue (r)
@@ -227,7 +239,8 @@ class Spider:
                 }
 
         # Grab the current worker process id
-        self.name = 'Worker +{}'.format(
+        self.name = '{} +{}'.format(
+                    self.__class__.__name__,
                     os.getpid()
                     )
 
@@ -235,12 +248,15 @@ class Spider:
         # Start the crawl
         try:
             if self.ip is not None:
-               self.get_links(self.url)
-               self.stats['visited'] = len(self.history)
+                while not self.poisoned():
+                   self.get_links(self.url)
+                   self.stats['visited'] = len(self.history)
         except Exception as e:
             if args.debug: raise
             log.error(' - {} :: error encountered : {}'.format(self.name,e))
             sys.exit(0)
+        except KeyboardInterrupt,SystemExit:
+            self.is_poisoned = True
 
         log.info(' - {} :: crawl completed in {}s'.format(
                                                         self.name,
@@ -259,21 +275,21 @@ class Spider:
         try:
             self.cached_ips[dom] = ip = socket.gethostbyname(dom)
         except Exception as e:
-            log.debug(' - exception raised in Spider.dig')
+            log.debug(' - exception raised in {}.dig'.format(self.name))
             self.stats['err'].append(
                 { 'error': str(e),'url':dom }
                 )
-            return None
+            return
         return ip
 
     def poisoned(self):
         try:
             if self.q.get(True,1) is None:
                 log.debug(' - {} :: poison pill received'.format(self.name))
-                return True
+                self.is_poisoned = True
         except Empty:
             if args.verbose: log.debug(' - {} :: empty queue read'.format(self.name))
-        return False
+        return self.is_poisoned
 
     def get_links(self, url):
         if self.poisoned():
@@ -319,6 +335,82 @@ class Spider:
                     self.stats['links_skipped'] += 1
         return
 
+class FormCrawler(Spider):
+
+    """ When -f/--forms is passed, invoke a FormCrawler to handle form submissions """
+
+    def get_links(self, url):
+        self.jar = cookielib.LWPCookieJar()
+        self.browser.set_cookiejar(self.jar)
+        self.execute()
+
+    def execute(self):
+        url_list = self.build_form_urls()
+        for url in url_list:
+            try:
+                response=self.browser.open(url)
+                if response.code==200:
+                    log.debug(' - {} :: found login_url: {}'.format(self.name,url))
+                    self.forms = self.browser.forms()
+                    self.login_forms = self.get_login_forms()
+                    if self.login_forms:
+                        log.debug(' - {} :: found login forms!'.format(self.name))
+                        for form in self.login_forms:
+                            self.browser.select_form(form.name)
+                            login_response = self.do_login()
+                            log.debug(' - {} :: login_response - {}'.format(
+                                                            self.name,
+                                                            login_response))
+
+            except Exception as e:
+                #log.debug(' - exception raised in FormCrawler.execute({})'.format(str(e)))
+                pass
+            except KeyboardInterrupt,SystemExit:
+                self.is_poisoned=True
+
+    def do_login(self):
+        user,passwd = self.get_controls
+        user.value = "testlogin"
+        passwd.value = "1234password!"
+        return self.browser.submit()
+
+    def build_form_urls(self):
+        dom = 'http://'+ args.url if 'http://' not in args.url else args.url
+        url_list = []
+        for page in [
+                    'blog/wp-admin',
+                    'blog/wp-login.php',
+                    'wp/wp-admin',
+                    'wp/wp-login.php',
+                    'wp-admin',
+                    'wp-login.php',
+                    'login',
+                    'administrator',
+                    'admin',
+                    'whm',
+                    'cpanel'
+                    ]:
+            url_list.append(urlparse.urljoin(dom,page))
+        return url_list
+
+    def get_controls(self):
+        for control in self.browser.form.controls:
+            if 'log' in control.name:
+                login_box=control
+            if 'pwd' in control.name:
+                pass_box=control
+            return login_box,pass_box
+
+    def get_login_forms(self):
+        login_forms=[]
+        for form in self.forms:
+            if form.name is None:
+                continue
+            if 'login' in form.name.lower():
+                login_forms.append(form)
+            else:
+                log.info(" - FormCrawler: no obvious login forms detected")
+
 def prep_browser():
     if args.verbose:
         log.debug('[*] Preparing browser ({})'.format(os.getpid()))
@@ -327,12 +419,14 @@ def prep_browser():
     b = mechanize.Browser()
     b.set_handle_robots(args.robots)
     b.set_handle_gzip(args.gz)
-    b.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(),max_time=1)
+    b.set_handle_refresh(False) # The configuration below seems to hang sometimes
+    # b.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(),max_time=1)
 
     ua = 'PokeyBot/1.0 (+https://pokeybill.us/bots/)'
 
     # With the user-agent vary option, substitute your own ua strings
-    # must be placed within the docs directory in a file ua.txt
+    # must be placed within the docs directory in a file ua.txt with
+    # one string per line
     if args.ua is not None:
         ua = args.ua
     else:
@@ -346,7 +440,7 @@ def prep_browser():
                 if args.debug: raise
                 ua = 'PokeyBot/1.0 (+https://pokeybill.us/bots/)'
             else:
-                ua = possibles[random.randint(0,len(possibles)-1)]
+                ua = random.choice(possibles)
 
     if args.verbose:
         log.debug(' - user-agent : {}'.format(ua))
@@ -427,7 +521,7 @@ def kill_jobs(jobs,q,s):
     returned = 0
     while True:
         try:
-            result = q.get(True,1)
+            result = q.get(False,1)
             if result == None:
                 q.put(None,1)   # push back any poison pills removed
             else:
@@ -453,18 +547,22 @@ def kill_jobs(jobs,q,s):
             if args.debug: raise
             continue
 
+def poison_workers(jobs,q):
     log.debug(' - {} :: sending term signals'.format(args.parent_name))
     for j in jobs:
-        q.put(None,False)
+        q.put(None,1)
 
+def join_jobs(jobs):
     log.debug(' - {} :: joining jobs'.format(args.parent_name))
     for j in jobs:
         j.join(1)
 
+def terminate_jobs(jobs,q):
     log.debug(' - {} :: cleaning up jobs'.format(args.parent_name))
     # Clean up stalling processes (data-destructive!)
     if any(j.is_alive() for j in jobs):
         for j in jobs:
+            q.put(None,False)
             j.terminate()
 
     log.debug(' - {} :: kill routine completed'.format(args.parent_name))
@@ -495,7 +593,7 @@ def check_args():
         # use raw_input so it is always str()
         if user_prompt(msg):
             args.procs = max_procs
-            log.debug('\tuser changed max_procs to : {}'.format(max_procs))
+            log.info('\tuser changed max_procs to : {}'.format(max_procs))
 
     if not args.logging and args.logpath:
         msg = '[!] Log path specified, but logging is not enabled - enable logging? >'
@@ -541,11 +639,12 @@ def do_progress_bar(max_time):
             time.sleep(interval)
             max_width -= 1
 
-args = parse_arguments()
-log = setup_logger(args)
-
 if __name__=="__main__":
     os.environ['http_proxy']=''
+    global args
+    args = parse_arguments()
+    global log
+    log = setup_logger(args)
     args.l = log
     args.s = s = Stats()
     args.parent_name = 'Crawler {}'.format(os.getpid())
@@ -557,13 +656,22 @@ if __name__=="__main__":
     try:
         # Start the worker processes
         log.debug(' - {} :: starting worker processes'.format(args.parent_name))
-        for i in range(args.procs):
+        for i in xrange(args.procs):
             p = Process(
                         target = Spider,
                         args = ((q,s),)
                         )
             p.start()
             jobs.append(p)
+        if args.forms:
+            log.debug(' - {} :: starting FormCrawler processes'.format(args.parent_name))
+            for i in xrange(max(2,args.procs/2)):
+                p = Process(
+                            target = FormCrawler,
+                            args = ((q,s),)
+                            )
+                p.start()
+                jobs.append(p)
 
         # Wait for the maximum execution time to expire
         if not args.verbose and not args.debug and args.silent:
@@ -583,13 +691,17 @@ if __name__=="__main__":
 
     try:
         log.debug("[*] @@ kill_jobs() @@")
-        if args.verbose: 
+        if args.verbose:
             log.debug(' *  jobs : {}'.format([job.pid for job in jobs]))
 
+        poison_workers(jobs,q)
         kill_jobs(jobs,q,s)
+        join_jobs(jobs)
+        terminate_jobs(jobs,q)
+
         if args.index: write_index(s)
         if args.report and not fail:
-            log.debug(' - {} :: printing report'.format(args.parent_name)) 
+            log.debug(' - {} :: printing report'.format(args.parent_name))
             report()
         log.debug('[*] {} :: killing me'.format(args.parent_name))
     except:
