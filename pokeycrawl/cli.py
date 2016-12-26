@@ -3,8 +3,44 @@
 
 import argparse
 import logging
+import os,sys
+
 log = logging.getLogger('pokeycrawl')
 
+def check_args(args):
+    # Operator and logical assertions
+
+    # >5 begins to see noticeable slowness on some machines
+    # use multiple sources for higher load simulations
+    max_procs = cpu_count()*5
+    if args.procs > max_procs:
+        msg = '[!] Proc count over max ({}, cpu count x 5) - use this limit? > '.format(max_procs)
+        # use raw_input so it is always str()
+        if user_prompt(msg):
+            args.procs = max_procs
+            log.info('\tuser changed max_procs to : {}'.format(max_procs))
+
+    if not args.logging and args.logpath:
+        msg = '[!] Log path specified, but logging is not enabled - enable logging? >'
+        if user_prompt(msg):
+            args.logging = True
+            log.debug('\tuser enabled logging')
+
+    if args.debug:
+        args.silent = False
+
+    if args.index:
+        base_path = os.path.dirname(os.path.realpath(__file__))
+        log.debug(' - {} :: base path - {}'.format(args.parent_name,base_path))
+        path_list = base_path.split('/')[:-1]
+        path_list.append('tests')
+        fpath = '{}/{}_{}.idx'.format(
+                '/'.join(path_list),
+                args.url.replace(' ',''),
+                int(time.time())
+                )
+        log.info('[*] Index file : {}'.format(fpath))
+        args.idx_path = fpath
 
 def parse_arguments(args):
 

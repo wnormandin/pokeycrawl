@@ -1,5 +1,6 @@
 #!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
+import time
 from argparse import Namespace
 args = Namespace()
 #############################
@@ -22,7 +23,7 @@ args.ua="PokeyBot/1.0 (+https://pokeybill.us/bots)"
 # Vary the user-agent string from the file docs/ua.txt
 args.vary=False
 # Enable debug messages and error raising
-args.debug=True
+args.debug=False
 # Enable post-execution summary
 args.report=False
 # Create an index of the URLs crawled in /tests/URL_UNIXEPOCH
@@ -35,7 +36,7 @@ args.robots=False
 args.verbose=False
 # Enable logging to file
 args.logging=False
-args.logpath='./text/crawl.log'
+args.logpath='tests/{}.log'.format(int(time.time()))
 # Assume 'Yes' to all prompts
 args.yes=False
 # Run diagnostic test, displays all parameters, verbose crawl

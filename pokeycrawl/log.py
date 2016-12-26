@@ -7,20 +7,15 @@ def setup_logger(args):
         cons_handler = logging.StreamHandler(sys.stdout)
         cons_handler.setFormatter(cfmt)
         cons_handler.setLevel(logger.level)
-        if args.debug and args.verbose:
-            print 'cons_handler : {}'.format(cons_handler)
-            print 'cons_handler.level : {}'.format(cons_handler.level)
         logger.addHandler(cons_handler)
 
-    def __file_logging(logger,fpath='../tests/crawl.log'):
+    def __file_logging(logger,fpath=os.path.join(os.path.dirname(__file__),
+                                                 args.logpath)):
         fpath = _resolve_path(fpath)
-        fmt = logging.Formatter('%(asctime)s |%(message)s')
+        fmt = logging.Formatter('%(asctime)s %(threadName)-8s :: %(message)s')
         file_handler = logging.FileHandler(fpath,'a')
         file_handler.setFormatter(fmt)
         file_handler.setLevel(logger.level)
-        if args.debug and args.verbose:
-            print 'file_handler : {}'.format(file_handler)
-            print 'file_handler.level : {}'.format(file_handler.level)
         logger.addHandler(file_handler)
 
     def _get_level():
@@ -42,15 +37,13 @@ def setup_logger(args):
         # Convert to absolute path, touch file
         fpath = os.path.realpath(fpath)
         result = _touch(fpath)
-        if result:
-            print('[*] Created {}'.format(fpath))
         return fpath
 
     # Setup console and file output based on command-line parameters
     if args.debug and args.verbose:
         cfmt = logging.StreamHandler('%(asctime)s | %(filename)s[%(process)d] > %(message)s')
     else:
-        cfmt = logging.StreamHandler('%(message)s')
+        cfmt = logging.StreamHandler('%(threadName)-8s :: %(message)s')
 
     logger = logging.getLogger('pokeycrawl')
     logger.setLevel(_get_level())
@@ -60,14 +53,7 @@ def setup_logger(args):
         __console_logging(logger,cfmt)
 
     if args.logging:
-        if args.logpath:
-            params = (logger,args.logpath,)
-        else:
-            params = (logger,)
-
+        params = (logger,args.logpath,)
         __file_logging(*params)
-
-    if args.debug and args.verbose:
-        print 'logger.handlers : {}'.format(logger.handlers)
 
     return logger
