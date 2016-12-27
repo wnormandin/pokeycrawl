@@ -3,8 +3,10 @@ import operator
 import socket
 import logging
 import threading
-
+import os, sys
+import time
 log = logging.getLogger('pokeycrawl')
+
 
 # Uses ascii color codes, may not play nicely with all terminals
 class Color:
@@ -19,9 +21,43 @@ class Color:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
+    MSG = '\x1b[1;32;44m'
+    ERR = '\x1b[1;31;44m'
 
-def color_wrap(val,color):
+def color_wrap(val,color,logging=False):
+	if logging:
+		return val
 	return '{}{}{}'.format(color,val,Color.END)
+
+def do_progress_bar(max_time):
+    # Disable output buffering for inline updates
+
+	def __progress_step(char,interval):
+		percent=((orig_max-interval)/float(orig_max))*100
+		if percent >= 75:
+			return color_wrap(char,Color.BLUE)
+		elif percent >= 50:
+			return color_wrap(char,Color.GREEN)
+		elif percent >= 25:
+			return color_wrap(char,Color.YELLOW)
+		else:
+			return color_wrap(char,Color.RED)
+
+	sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+	start = time.clock()
+	max_width = 40          # Progress bar width
+	orig_max = max_width
+	interval = max_time/float(max_width)  # loop interval will scale
+	print(__progress_step('@',max_width)),
+	max_width -= 1
+	while True:
+		if max_width <= 0:
+			print(__progress_step('@',max_width))
+			return
+		else:
+			print(__progress_step('>',max_width)),
+			time.sleep(interval)
+			max_width -= 1
 
 def dig(cache,dom):
     if dom in cache: return cache[dom]
@@ -33,6 +69,13 @@ def dig(cache,dom):
     return ip
 
 def report(args):
+
+    def __try_op(val,op,err_val=0):
+        try:
+            return op(val)
+        except TypeError:
+            return err_val
+
     stats = args.s
     try:
         bar = color_wrap('=============================',Color.GREEN)
@@ -43,20 +86,22 @@ def report(args):
             print('Avg load time     : {:.5f}'.format(avg_time))
         except:
             print('0')
-        print('\tMax time  : {:.5f}'.format(max(stats.times.count)))
-        print('\tMin time  : {:.5f}'.format(min(stats.times.count)))
-        print('\tTotal     : {:.5f}'.format(sum(stats.times.count)))
+        print('\tMax time  : {:.5f}'.format(__try_op(max,stats.times.count)))
+        print('\tMin time  : {:.5f}'.format(__try_op(min,stats.times.count)))
+        print('\tTotal     : {:.5f}'.format(__try_op(sum,stats.times.count)))
         print('\nAvg URLs/page     : {:.2f}'.format(
-								sum(stats.url_counts.count)/float(len(
-												stats.url_counts.count))
-								))
+			__try_op(sum,stats.url_counts.count,1)/float(
+			__try_op(len,stats.url_counts.count,1)
+			)))
         print('URLs skipped      : {}'.format(stats.external_skipped.count))
 
-        url_err_set = set(stats.error_urls.count)
-        print('\nURLs with Errors  : {}'.format(
-							color_wrap(len(url_err_set)),Color.YELLOW))
-        print('Errors returned   : {}'.format(
-							color_wrap(len(stats.errors.count)),Color.YELLOW))
+        url_err_set = __try_op(set,stats.error_urls.count,[0])
+        print('\nURLs with Errors  : {}'.format(color_wrap(
+			__try_op(len,url_err_set),Color.YELLOW)
+			))
+        print('Errors returned   : {}'.format(color_wrap(
+			__try_op(len,stats.errors.count),Color.YELLOW)
+			))
         print bar, '\n'
 
         # Option to display error list
@@ -64,9 +109,9 @@ def report(args):
             if not args.yes:
                 ch = raw_input('View error detail? (y/n) > ').lower()
             if args.yes or (ch=='y'):
-                print(color_wrap('[*] Displaying top 5 errors',Color.RED))
+                print(color_wrap('[!] Displaying top 5 errors',Color.ERR))
                 srtd_list = sorted(
-                                stats.errors.count.items(),
+                                stats.errors.count,
                                 key=operator.itemgetter(1)
                                 )
                 for key in srtd_list[:5]:
@@ -90,30 +135,30 @@ class Counter():
 			self.count=counter_type()
 
 	def increment(self,val=None):
-		log.debug('[-] Counter:{} :: Waiting for lock'.format(self.name))
+		#log.debug('[-] Counter:{} :: Waiting for lock'.format(self.name))
 		self.lock.acquire()
 		try:
-			log.debug('[-] Counter:{} :: Lock acquired'.format(self.name))
+			#log.debug('[-] Counter:{} :: Lock acquired'.format(self.name))
 			if self.type is None:
 				if val is not None:
 					self.count+=val
 				else:
 					self.count+=1
-			else:
+			elif self.type is list:
 				try:
 					self.count.extend(val)
 				except:
 					try:
-						self.count[val]+=1
-					except:
-						log.debug('[!] Unable to increment, Value: {} :: {}'.format(
-									val,type(self.count)))
+						self.count.append(val)
+					except: raise
+			elif self.type is dict:
+					self.count[val]+=1
 		finally:
 			self.lock.release()
 
 class Stats:
 
-    """ Stores various counters/convenience methods for reporting """
+    """ Various counters/convenience methods for reporting """
 
     def __init__(self):
         self.refresh()
@@ -126,7 +171,7 @@ class Stats:
 		for list_count in ['errors','error_urls','times','url_counts','unique_urls']:
 			setattr(self,list_count,Counter(list_count,list))
 
-		log.debug('[@] Counters initialized')
+		log.debug('[*] Statistics Refreshed')
 
     def urls(self,new):
 

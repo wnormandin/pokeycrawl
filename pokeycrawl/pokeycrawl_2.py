@@ -13,39 +13,44 @@ import urlparse
 import random
 import time
 import os, sys
+import threading
 
 from Queue import Queue, Empty
 from threading import Thread, current_thread
+
+current_thread().name='pokeycrawl'
+this = sys.modules[__name__]
 
 # Module imports
 from config import args as defaults
 from log import setup_logger
 from cli import parse_arguments, check_args
-from _util import Stats, user_prompt, report, dig, Color
+from _util import Stats, user_prompt, report, dig, Color,color_wrap
+from _util import do_progress_bar
 
 class Crawler(object):
     """ Base class for crawler objects """
 
     def __init__(self):
         self.__rename()
-        self.__
+        if args.test or args.verbose:
+            log.debug('[-] {} started'.format(self.name))
 
     def __rename(self):
         self.name=current_thread().name
 
-class Spider:
+class Spider(Crawler):
     pass
 
 class FormCrawler(Spider):
     pass
 
-class PageParser:
+class PageParser(Crawler):
     pass
 
 def abort(exit_code):
     # Add code to safely exit
-    # clean up, close connections, etc
-    log.debug('[!] Beginning abort sequence')
+    color_log('[!] Beginning abort sequence',Color.ERR)
     sys.exit(exit_code)
 
 class PokeyCrawl():
@@ -53,8 +58,6 @@ class PokeyCrawl():
 
     def __init__(self):
         # Initialize args, log, queue, and other object
-        self.args = args = parse_arguments(defaults)
-        self.log = log = setup_logger(args)
         self.q = Queue()
 
         # Status messaging
@@ -62,90 +65,132 @@ class PokeyCrawl():
         log.debug('[*] Logger {} spawned'.format(log.name))
 
         if args.test:
-            self.tester=AppTester(log)
-            self.tester.print_args(args)
+            self.tester=AppTester()
+            self.tester.print_args()
 
     def prep_workers(self):
-        worker_count=self.args.procs
-        fc_count=self.args.procs/2 if self.args.forms else 0
-        parser_count=1 if self.args.parse else 0
+        worker_count=args.procs
+        fc_count=args.procs/2 if args.forms else 0
+        parser_count=1 if args.parse else 0
 
         self.pool={}
         for i in xrange(worker_count):
-            t = Thread(target=Spider,name='Worker {}'.format(i))
+            t = Thread(target=Spider,name='Spider {}'.format(i))
             self.pool[t.name]=t
 
         for j in xrange(fc_count):
-            f = Thread(target=FormCrawler,name='FCWorker {}'.format(j))
+            f = Thread(target=FormCrawler,name='FormCrawler {}'.format(j))
             self.pool[f.name]=f
 
         for k in xrange(parser_count):
-            p = Thread(target=PageParser,name='Parser {}'.format(k))
+            p = Thread(target=PageParser,name='PageParser {}'.format(k))
             self.pool[p.name]=p
 
-        if self.args.test:
+        if args.test:
             self.tester.worker_info(self.pool)
 
-        self.log.debug('[*] {} workers added to the pool'.format(len(self.pool)))
+        log.debug('[*] {} workers added to the pool'.format(len(self.pool)))
+
+    def start_workers(self):
+        for worker in self.pool:
+            self.pool[worker].start()
+
+    def join_workers(self):
+        for worker in self.pool:
+            self.pool[worker].join()
 
     def init_stats(self,s):
-        self.args.s=s
-        if self.args.test:
+        args.s=s
+        if args.test:
             self.tester.initial_stats(s)
 
     def __execute(self,test=False):
-        self.log.debug('[*] Executing the crawl')
+        log.debug('[*] Executing the crawl')
 
 class AppTester():
     """ Performs various tests when --test is passed """
 
-    def __init__(self,log):
-        self.log=log
-
-    def print_args(self,args):
-        self.log.info('[^] -*- Parameter Values -*-')
+    def print_args(self):
+        log.info('[@] -*- Parameter Values -*-')
         for arg in vars(args):
-            self.log.info('[^] {} :: {}'.format(
+            log.info('[-] {} :: {}'.format(
                                         arg,
                                         getattr(args,arg)
                                         ))
-        self.log.info('[^] -*- End Parameter List -*-')
+        log.info('[@] -*- End Parameter List -*-')
+
+    def get_text_result(self,bool_result,col=False):
+        if bool_result:
+            msg=color_wrap('PASS',Color.GREEN)
+        else:
+            msg=color_wrap('FAIL',Color.GREEN)
+
+        return msg
 
     def initial_stats(self,stats):
-        self.log.info('[^] -*- Crawl Stats Initialized -*-')
+
+        def __increment_counters():
+            try:
+                for item in vars(stats):
+                    for i in xrange(1,6):
+                        getattr(stats,item).increment(i)
+            except Exception as e:
+                raise
+                return False
+            else:
+                return True
+
+        log.info('[@] -*- Crawl Stats Initialized -*-')
+        log.info('[@] -*- Testing Counters -*-')
+
+        test_result = self.get_text_result(__increment_counters())
+        log.info('[!] -*- Counters: {} -*-'.format(test_result))
+
         for item in vars(stats):
-            self.log.info('[^] {} :: {}'.format(
+            log.info('[-] {} :: {}'.format(
                                         item,
                                         getattr(stats,item).count
                                         ))
-        self.log.info('[^] -*- End Initial Stats -*-')
+        stats.refresh()
+        log.info('[@] -*- End Initial Stats -*-')
 
     def worker_info(self,pool):
-        self.log.info('[^] -*- Worker List -*-')
+        log.info('[@] -*- Worker List -*-')
         for p in pool:
-            self.log.info('[^] {} :: {}'.format(
+            log.info('[-] {} :: {}'.format(
                                         pool[p].__class__.__name__,
                                         p
                                         ))
-        self.log.info('[^] -*- End Woker List -*-')
+        log.info('[@] -*- End Woker List -*-')
+
+def color_log(msg,color,lvl='debug'):
+    getattr(log,lvl)(color_wrap(msg,color,args.logging))
 
 if __name__=='__main__':
-    # When invoked at the command line or via python -m,
-    # parse command-line arguments to
 
-    global log
-    global args
-    app = PokeyCrawl()
-    # app = PokeyCrawl(args,log)
-    app.prep_workers()
-    app.init_stats(Stats())
-
-    jobs=[]
+    assert isinstance(threading.current_thread(), threading._MainThread)
+    # When executed or invoked via python -m,
+    # parse command-line arguments and setup the logger
+    # args/log must exist at a module level when not invoking
+    # at the command line.
+    this.args = parse_arguments(defaults)
+    this.log = setup_logger(args)
 
     try:
-        pass
+        app = PokeyCrawl()
+        app.prep_workers()
+        app.init_stats(Stats())
+        color_log('[!] Preparations complete, crawl commencing',Color.MSG)
+        app.start_workers()
+        color_log('[!] Workers started',Color.MSG)
+        do_progress_bar(args.maxtime)
+        app.join_workers()
+        color_log('[!] Workers joined',Color.MSG)
+        if args.report:
+            report(args)
     except KeyboardInterrupt,SystemExit:
+        color_log('[!] KeyboardInterrupt detected',Color.ERR,'error')
         abort(0)
     except Exception as e:
-        if debug: raise
+        if args.debug: raise
         abort(1)
