@@ -90,7 +90,8 @@ def parse_arguments(args):
             [('ua',False),str,'specify a user-agent string'],
             [('procs',True),int,'max worker threads'],
             [('maxtime',False),int,'maximum run time in seconds'],
-            [('logpath',False),str,'specify a log path']
+            [('logpath',False),str,'specify a log path'],
+            [('timeout',False),float,'request timeout in seconds']
             ]
 
     for f in flags:

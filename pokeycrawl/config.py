@@ -44,6 +44,8 @@ args.yes=False
 args.test=False
 # Silence crawl messages, will enable the progress bar
 args.silent=False
+# Set request timeout in seconds (per request)
+args.timeout=1
 
 #!# WebsiteParser Settings
 """

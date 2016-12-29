@@ -2,7 +2,7 @@
 import operator
 import socket
 import logging
-import threading
+import multiprocessing
 import os, sys
 import time
 log = logging.getLogger('pokeycrawl')
@@ -25,46 +25,46 @@ class Color:
     ERR = '\x1b[1;31;44m'
 
 def color_wrap(val,color,logging=False):
-	if logging:
-		return val
-	return '{}{}{}'.format(color,val,Color.END)
+    if logging:
+        return val
+    return '{}{}{}'.format(color,val,Color.END)
 
 def do_progress_bar(max_time):
     # Disable output buffering for inline updates
 
-	def __progress_step(char,interval):
-		percent=((orig_max-interval)/float(orig_max))*100
-		if percent >= 75:
-			return color_wrap(char,Color.BLUE)
-		elif percent >= 50:
-			return color_wrap(char,Color.GREEN)
-		elif percent >= 25:
-			return color_wrap(char,Color.YELLOW)
-		else:
-			return color_wrap(char,Color.RED)
+    def __progress_step(char,interval):
+        percent=((orig_max-interval)/float(orig_max))*100
+        if percent >= 75:
+            return color_wrap(char,Color.BLUE)
+        elif percent >= 50:
+            return color_wrap(char,Color.GREEN)
+        elif percent >= 25:
+            return color_wrap(char,Color.YELLOW)
+        else:
+            return color_wrap(char,Color.RED)
 
-	sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-	start = time.clock()
-	max_width = 40          # Progress bar width
-	orig_max = max_width
-	interval = max_time/float(max_width)  # loop interval will scale
-	print(__progress_step('@',max_width)),
-	max_width -= 1
-	while True:
-		if max_width <= 0:
-			print(__progress_step('@',max_width))
-			return
-		else:
-			print(__progress_step('>',max_width)),
-			time.sleep(interval)
-			max_width -= 1
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+    start = time.clock()
+    max_width = 40          # Progress bar width
+    orig_max = max_width
+    interval = max_time/float(max_width)  # loop interval will scale
+    print(__progress_step('@',max_width)),
+    max_width -= 1
+    while True:
+        if max_width <= 0:
+            print(__progress_step('@',max_width))
+            return
+        else:
+            print(__progress_step('>',max_width)),
+            time.sleep(interval)
+            max_width -= 1
 
 def dig(cache,dom):
     if dom in cache: return cache[dom]
     try:
         cache[dom]=ip=socket.gethostbyname(dom)
     except Exception as e:
-        log.debug(' - exception raised in _utils.dig')
+        log.error('[!] exception raised in _utils.dig:{}'.format(e))
         return
     return ip
 
@@ -90,18 +90,24 @@ def report(args):
         print('\tMin time  : {:.5f}'.format(__try_op(min,stats.times.count)))
         print('\tTotal     : {:.5f}'.format(__try_op(sum,stats.times.count)))
         print('\nAvg URLs/page     : {:.2f}'.format(
-			__try_op(sum,stats.url_counts.count,1)/float(
-			__try_op(len,stats.url_counts.count,1)
-			)))
+            __try_op(sum,stats.url_counts.count,1)/float(
+            __try_op(len,stats.url_counts.count,1)
+            )))
         print('URLs skipped      : {}'.format(stats.external_skipped.count))
+
+        print('Status Codes      :')
+        for code in set(stats.response_codes.count):
+            print('\t{} : {}'.format(
+                 code,stats.response_codes.count.count(code)
+                 ))
 
         url_err_set = __try_op(set,stats.error_urls.count,[0])
         print('\nURLs with Errors  : {}'.format(color_wrap(
-			__try_op(len,url_err_set),Color.YELLOW)
-			))
+            __try_op(len,url_err_set),Color.YELLOW)
+            ))
         print('Errors returned   : {}'.format(color_wrap(
-			__try_op(len,stats.errors.count),Color.YELLOW)
-			))
+            __try_op(len,stats.errors.count),Color.YELLOW)
+            ))
         print bar, '\n'
 
         # Option to display error list
@@ -122,39 +128,42 @@ def report(args):
         log.info('[*] Exception in report(): {},{}'.format(e,str(e)))
 
 class Counter():
-	def __init__(self,name,counter_type=None):
-		# Counter class, limited support of the following
-		# formats.  Increment operation is thread-safe
-		self.lock = threading.Lock()
-		self.name=name
-		self.type=counter_type
-		if counter_type is None:
-			self.count=0
-		else:
-			# Supported types - any iterable
-			self.count=counter_type()
+    def __init__(self,name,counter_type=None):
+        # Counter class, limited support of the following
+        # formats.  Increment operation is thread-safe
+        self.lock = multiprocessing.Lock()
+        self.name=name
+        self.type=counter_type
+        if counter_type is None:
+            self.count=0
+        else:
+            # Supported types - any iterable
+            self.count=counter_type()
 
-	def increment(self,val=None):
-		#log.debug('[-] Counter:{} :: Waiting for lock'.format(self.name))
-		self.lock.acquire()
-		try:
-			#log.debug('[-] Counter:{} :: Lock acquired'.format(self.name))
-			if self.type is None:
-				if val is not None:
-					self.count+=val
-				else:
-					self.count+=1
-			elif self.type is list:
-				try:
-					self.count.extend(val)
-				except:
-					try:
-						self.count.append(val)
-					except: raise
-			elif self.type is dict:
-					self.count[val]+=1
-		finally:
-			self.lock.release()
+    def increment(self,val=None,verbose=False):
+        if verbose:
+            log.debug('[-] Counter:{} :: Waiting for lock'.format(self.name))
+        self.lock.acquire()
+        try:
+            if verbose:
+                log.debug('[-] Counter:{} :: Lock acquired'.format(self.name))
+            if self.type is None:
+                if val is not None:
+                    self.count+=val
+                else:
+                    self.count+=1
+            elif self.type is list:
+                try:
+                    if isinstance(val,list):
+                        self.count.extend(val)
+                    else:
+                        self.count.append(val)
+                except:
+                    raise
+            elif self.type is dict:
+                    self.count[val]+=1
+        finally:
+            self.lock.release()
 
 class Stats:
 
@@ -165,13 +174,15 @@ class Stats:
 
     def refresh(self):
         # re-initialize each counter
-		for counter in ['crawled_count','external_skipped']:
-			setattr(self,counter,Counter(counter))
+        for counter in ['crawled_count','external_skipped','forms_crawled',
+                        'forms_parsed']:
+            setattr(self,counter,Counter(counter))
 
-		for list_count in ['errors','error_urls','times','url_counts','unique_urls']:
-			setattr(self,list_count,Counter(list_count,list))
+        for list_count in ['errors','error_urls','times','url_counts',
+                           'response_codes','unique_urls','form_urls']:
+            setattr(self,list_count,Counter(list_count,list))
 
-		log.debug('[*] Statistics Refreshed')
+        log.debug('[*] Statistics Refreshed')
 
     def urls(self,new):
 
