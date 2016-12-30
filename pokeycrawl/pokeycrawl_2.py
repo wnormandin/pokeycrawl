@@ -88,14 +88,24 @@ class Spider(Crawler):
         # in the FormCrawler child
         Crawler.__init__(self,*arg_list)
 
+        if args.verbose: log.debug(
+                    '[-] {} :: initializing attributes'.format(self.name)
+                    )
         self.cached_ips = {} # cache IPs to minimize dig() ops
         self.history = []   # request history
         self.exclude = []   # URLs to be excluded from future requests
         self.to_do = []     # list of found URLs to be processed
         self.baseurl = self.base_url()
         self.parser = BasicParser()
+        if args.test:
+            self.tester = AppTester()
+
+        self.ip = dig(self.cached_ips,args.url)
 
         # Set up cookie support
+        if args.verbose: log.debug(
+                    '[-] {} :: Cookie jar created'.format(self.name)
+                    )
         self.jar = requests.cookies.RequestsCookieJar()
 
         # Start the crawl
@@ -129,17 +139,21 @@ class Spider(Crawler):
 
     def get_links(self,response):
         # Get links from the response body using the BasicParser
+        # Need to prefer <body> URLs over head/foot
         self.parser._read(response.text)
-        for link in self.parser.links:
-            matched=False
-            if link is not None:
-                for item in self.history + self.exclude + self.to_do:
-                    if link == item:
-                        matched=True
-                if not matched:
-                    dom = urlparse.urlparse(link).hostname
-                    if dom and self.ip == dig(dom):
-                        self.to_do.append(link)
+        for phase in self.parser.links:
+            for link in self.parser.links[phase]:
+                matched=False
+                if link is not None:
+                    for item in self.history + self.exclude + self.to_do:
+                        if link == item:
+                            matched=True
+                    if not matched:
+                        dom = urlparse.urlparse(link).hostname
+                        if dom and self.ip == dig(self.cached_ips,dom):
+                            log.debug('[-] {} :: To-Do:{}'.format(
+                                    self.name, link))
+                            self.to_do.append(link)
 
     def visited(self,url):
         # Iterating here for clarity, only full URL matches
@@ -151,6 +165,8 @@ class Spider(Crawler):
 
     # http://docs.python-requests.org/en/master/user/quickstart/
     def make_request(self,uri,auth=None,payload=None,method=requests.get):
+        if not args.silent:
+            log.debug('[*] {} :: crawling {}'.format(self.name,uri))
         try:
             if auth is not None:
                 # auth=('user','pass') login via HTTP
@@ -172,6 +188,9 @@ class Spider(Crawler):
         body = response.text
         history = response.history
         cookies = response.cookies
+
+        if args.test:
+            self.tester.response_details(response)
 
         if code in range(200,210):
             self.get_links(response)
@@ -253,9 +272,15 @@ class BasicParser(HTMLParser):
         if self.in_head: return 'head'
         if self.in_foot: return 'foot'
 
+    def _validate(self,url):
+        # Basic URL testing - improve this logic
+        if urlparse.urlparse(url).scheme in 'https':
+            return True
+        return False
+
     def _handle_anchor(self,attrs):
         for attr in attrs:
-            if attr[0]=='href':
+            if attr[0]=='href' and self._validate(attr[1]):
                 self.links[self._current_phase()].append(attr[1])
 
     def _handle_script(self,attrs):
@@ -392,7 +417,8 @@ class PokeyCrawl():
         self.start_workers()
         while True:
             if time.time()-self.start > args.maxtime:
-                log.debug('[*] {} :: Time Expired!'.format(self.name))
+                color_log('[*] {} :: Time Expired!'.format(self.name),
+                        Color.MSG)
                 break
             self._poll()
             # Don't flood queue reads
@@ -416,9 +442,30 @@ class AppTester():
         if bool_result:
             msg=color_wrap('PASS',Color.GREEN)
         else:
-            msg=color_wrap('FAIL',Color.GREEN)
+            msg=color_wrap('FAIL',Color.RED)
 
         return msg
+
+    def response_details(self,response):
+
+        if response.status_code in range(200,210):
+            code_color = Color.GREEN
+        else:
+            code_color = Color.RED
+
+        log_str = '[@] -*- Response :: '
+        log_str += 'URL:{}, Result:{}, Encoding:{}, Cookies:{}, Redirects:{}'.format(
+                response.url, color_wrap(response.status_code,code_color),
+                response.encoding, len(response.cookies), len(response.history))
+
+        head_str = '[@] -*- Headers :: '
+        for item in ['Content-Length','Content-Encoding',
+                    'Server','Vary','Cache-Control','Date']:
+            if item in response.headers:
+                head_str += '{}:{}, '.format(item,response.headers[item])
+
+        log.info(log_str)
+        log.info(head_str[:-2])
 
     def initial_stats(self,stats):
 

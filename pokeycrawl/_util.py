@@ -5,6 +5,7 @@ import logging
 import multiprocessing
 import os, sys
 import time
+import urlparse
 log = logging.getLogger('pokeycrawl')
 
 
@@ -60,6 +61,9 @@ def do_progress_bar(max_time):
             max_width -= 1
 
 def dig(cache,dom):
+    dom = dom.replace('http://','')
+    dom = dom.replace('https://','')
+    #log.debug('[-] Digging: {}'.format(dom))
     if dom in cache: return cache[dom]
     try:
         cache[dom]=ip=socket.gethostbyname(dom)
