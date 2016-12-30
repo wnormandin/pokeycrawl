@@ -82,7 +82,6 @@ def parse_arguments(args):
            [('logging',True),'enable logging output to file'],
            [('yes',True),'assume "yes" for any prompts'],
            [('test',True),'basic test, does not send requests'],
-           [('parse',False),'parse pages for forms (more resource-intensive)']
            ]
 
     # Parameters

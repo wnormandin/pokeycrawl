@@ -47,15 +47,6 @@ args.silent=False
 # Set request timeout in seconds (per request)
 args.timeout=1
 
-#!# WebsiteParser Settings
-"""
-Set to True to activate the SiteParser which
-will review returned HTML for forms to be
-passed to the FormCrawler workers in addition
-to the default sites
-"""
-args.parse=False
-
 #!# Spider Settings
 
 #!# FormCrawler Settings

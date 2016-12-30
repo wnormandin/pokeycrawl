@@ -169,17 +169,21 @@ class Stats:
 
     """ Various counters/convenience methods for reporting """
 
+    counters = ['crawled_count','external_skipped','forms_crawled',
+                'forms_parsed']
+
+    list_counters = ['errors','error_urls','times','url_counts',
+                    'response_codes','unique_urls','form_urls','redirects']
+
     def __init__(self):
         self.refresh()
 
     def refresh(self):
         # re-initialize each counter
-        for counter in ['crawled_count','external_skipped','forms_crawled',
-                        'forms_parsed']:
+        for counter in Stats.counters:
             setattr(self,counter,Counter(counter))
 
-        for list_count in ['errors','error_urls','times','url_counts',
-                           'response_codes','unique_urls','form_urls']:
+        for list_count in Stats.list_counters:
             setattr(self,list_count,Counter(list_count,list))
 
         log.debug('[*] Statistics Refreshed')
