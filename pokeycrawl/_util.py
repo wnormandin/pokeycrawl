@@ -24,6 +24,7 @@ class Color:
     END = '\033[0m'
     MSG = '\x1b[1;32;44m'
     ERR = '\x1b[1;31;44m'
+    TST = '\x1b[7;34;46m'
 
 def color_wrap(val,color,logging=False):
     if logging:
@@ -67,8 +68,8 @@ def dig(cache,dom):
     if dom in cache: return cache[dom]
     try:
         cache[dom]=ip=socket.gethostbyname(dom)
-    except Exception as e:
-        log.error('[!] exception raised in _utils.dig:{}'.format(e))
+    except Exception:
+        log.error(color_wrap('[!] Dig failed: {}'.format(dom),Color.ERR))
         return
     return ip
 

@@ -140,12 +140,14 @@ class Spider(Crawler):
     def get_links(self,response):
         # Get links from the response body using the BasicParser
         # Need to prefer <body> URLs over head/foot
-        self.parser._read(response.text)
+        self.parser._read(response.text,response.url)
         for phase in self.parser.links:
             for link in self.parser.links[phase]:
                 matched=False
                 if link is not None:
                     for item in self.history + self.exclude + self.to_do:
+                        if args.verbose and args.test and args.debug:
+                            print 'comparing {} to {}'.format(link,item)
                         if link == item:
                             matched=True
                     if not matched:
@@ -258,8 +260,9 @@ class BasicParser(HTMLParser):
         for flag in ['in_head','in_body','in_foot']:
             setattr(self,flag,False)
 
-    def _read(self,data):
+    def _read(self,data,url):
         # Flush output before re-using
+        self.req_url = url
         self._lines = []
         self.reset()
         self.feed(data)
@@ -272,16 +275,18 @@ class BasicParser(HTMLParser):
         if self.in_head: return 'head'
         if self.in_foot: return 'foot'
 
-    def _validate(self,url):
-        # Basic URL testing - improve this logic
-        if urlparse.urlparse(url).scheme in 'https':
-            return True
-        return False
+    def _validate(self,parsed):
+        if not parsed.scheme:
+            return
+        return parsed.geturl()
 
     def _handle_anchor(self,attrs):
         for attr in attrs:
-            if attr[0]=='href' and self._validate(attr[1]):
-                self.links[self._current_phase()].append(attr[1])
+            if attr[0]=='href':
+                parsed = urlparse.urlparse(attr[1])
+                fqdn = self._validate(parsed)
+                if fqdn:
+                    self.links[self._current_phase()].append(fqdn)
 
     def _handle_script(self,attrs):
         script_type = None
@@ -429,14 +434,21 @@ class PokeyCrawl():
 class AppTester():
     """ Performs various tests when --test is passed """
 
+    def __init__(self):
+        self.col = Color.TST
+
+    def _log(self,msg):
+        #color_log(msg,self.col)
+        log.info(msg)
+
     def print_args(self):
-        log.info('[@] -*- Parameter Values -*-')
+        self._log('[!] -*- Parameter Values -*-')
         for arg in vars(args):
-            log.info('[-] {} :: {}'.format(
+            self._log('[-] {} :: {}'.format(
                                         arg,
                                         getattr(args,arg)
                                         ))
-        log.info('[@] -*- End Parameter List -*-')
+        self._log('[!] -*- End Parameter List -*-')
 
     def get_text_result(self,bool_result,col=False):
         if bool_result:
@@ -453,19 +465,29 @@ class AppTester():
         else:
             code_color = Color.RED
 
-        log_str = '[@] -*- Response :: '
-        log_str += 'URL:{}, Result:{}, Encoding:{}, Cookies:{}, Redirects:{}'.format(
-                response.url, color_wrap(response.status_code,code_color),
-                response.encoding, len(response.cookies), len(response.history))
+        for item in ['history','cookies']:
+            attr = getattr(response,item)
+            if len(attr)>0:
+                col = Color.GREEN
+            else:
+                col = Color.RED
+            setattr(self,item,color_wrap(len(attr),col))
 
-        head_str = '[@] -*- Headers :: '
+        log_str = '[!] Response :: '
+        log_str += 'URL:{}, Result:{}, Cookies:{}, Redirects:{}'.format(
+                response.url, color_wrap(response.status_code,code_color),
+                self.cookies, self.history)
+        self.cookies = None
+        self.history = None
+
+        head_str = '[!] Headers :: '
         for item in ['Content-Length','Content-Encoding',
                     'Server','Vary','Cache-Control','Date']:
             if item in response.headers:
                 head_str += '{}:{}, '.format(item,response.headers[item])
 
-        log.info(log_str)
-        log.info(head_str[:-2])
+        self._log(log_str)
+        self._log(head_str[:-2])
 
     def initial_stats(self,stats):
 
@@ -480,19 +502,20 @@ class AppTester():
             else:
                 return True
 
-        log.info('[@] -*- Crawl Stats Initialized -*-')
-        log.info('[@] -*- Testing Counters -*-')
+        self._log('[!] -*- Crawl Stats Initialized -*-')
+        self._log('[!] -*- Testing Counters -*-')
 
         test_result = self.get_text_result(__increment_counters())
-        log.info('[!] -*- Counters: {} -*-'.format(test_result))
+        self._log('[!] -*- Counters: {} -*-'.format(test_result))
 
         for item in vars(stats):
-            log.info('[-] {} :: {}'.format(
+            self._log('[-] {} :: {}'.format(
                                         item,
                                         getattr(stats,item).count
                                         ))
         stats.refresh()
-        log.info('[@] -*- End Initial Stats -*-')
+        self._log('[!] -*- End Initial Stats -*-')
+
 def color_log(msg,color,method='debug'):
     getattr(log,method)(color_wrap(msg,color,args.logging))
 
@@ -520,6 +543,9 @@ if __name__=='__main__':
             report(args)
     except KeyboardInterrupt,SystemExit:
         color_log('[!] KeyboardInterrupt detected',Color.ERR,'error')
+        stop.set()
+        if args.report:
+            report(args)
         abort(0)
     except Exception as e:
         if args.debug: raise
