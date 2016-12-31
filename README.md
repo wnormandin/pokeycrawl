@@ -7,10 +7,7 @@ in order to load test (with multiprocessing) or store a site index.
 ---
 ####Installation
 
-```
-# pip install pokeycrawl
-```
-or
+Currently unavailable via pip, clone this repo for the current development version
 
 ```
 # git clone https://github.com/wnormandin/pokeycrawl.git
@@ -19,12 +16,11 @@ or
 ```
 ---
 ####Usage
-
 ```
-$ python pokeycrawl.py --help
-usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [-i] [--ua UA]
-                     [--gz] [--robots] [--maxtime MAXTIME] [--verbose]
-                     [--silent]
+$python pokeycrawl.py -h
+usage: pokeycrawl.py [-h] [-s SPEED] [-f] [-v] [-d] [-p PROCS] [-r] [-i]
+                     [--ua UA] [--gz] [--robots] [--maxtime MAXTIME]
+                     [--verbose] [--silent] [-l] [--logpath LOGPATH] [-y]
                      url
 
 positional arguments:
@@ -33,8 +29,9 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -s SPEED, --speed SPEED
-                        set the crawl speed (defaults to 0.25s)
-  -v, --vary            vary the user-agent
+                        set the crawl speed (defaults to 0.15s)
+  -f, --forms           submit (safe) dummy data to forms found in responses
+  -v, --vary            vary the user-agent (requires a list in docs/ua.txt)
   -d, --debug           enable debug (verbose) messages
   -p PROCS, --procs PROCS
                         concurrent processes (~=simulated visitors)
@@ -46,6 +43,9 @@ optional arguments:
   --maxtime MAXTIME     max run time in seconds
   --verbose             displays all header and http debug info
   --silent              silences URL crawl notifications
+  -l, --logging         enable logging
+  --logpath LOGPATH     specify a log path (defaults to ./text/crawl.log)
+  -y, --assume-yes      assumes a "yes" response to any prompts
 ```
 ---
 Usage [examples](./EXAMPLES.md)
