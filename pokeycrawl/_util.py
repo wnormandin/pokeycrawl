@@ -73,58 +73,109 @@ def dig(cache,dom):
         return
     return ip
 
-def report(args):
+def report(args,meta):
 
-    def __try_op(val,op,err_val=0):
+    def __try_op(op,val,err_val=0):
         try:
             return op(val)
         except TypeError:
+            if args.test: raise
             return err_val
+
+    def _error_counts(errs):
+        # Get unique errors
+        uniq = set(errs)
+        counts = {}
+        for err in uniq:
+            counts[err] = 0
+            for line in errs:
+                if err == line:
+                    counts[err]+=1
+
+        return sorted(counts.items(), key=operator.itemgetter(1))[:4]
+
+    def _p(msg,col=None):
+        if col is not None:
+            print color_wrap(msg,col)
+            return
+        print msg
+
+    def _lsort(l):
+        return sorted((str(i) for i in l), key=len)
+        #return l.sort(key=lambda item: (len(item),item))
+
+    def _p_list(l,tab='\t'):
+        # Prints list contents in length-alphabetical order
+        # tab char is flexible
+        if l is not None and l:
+            for item in _lsort(l):
+                _p('{}{}'.format(tab,item))
 
     stats = args.s
     try:
-        bar = color_wrap('=============================',Color.GREEN)
-        print '\n', bar
-        print('Links crawled     : {}'.format(stats.crawled_count.count))
+        bar = '============================='
+        _p('{}{}'.format('\n',bar),Color.GREEN)
+        _p('Metadata',Color.MSG)
+        _p('Queue Reads       : {}'.format(meta['func_calls']['_poll']))
+        _p('Execution Time    : {}s'.format(meta['execution_time']))
+        col = Color.ERR if meta['interrupted'] else Color.GREEN
+        _p('Interrupted       : {}'.format(meta['interrupted']),col)
+        _p('{}'.format(bar),Color.GREEN)
+        _p('Crawl Statistics',Color.MSG)
+        _p('Links crawled     : {}'.format(stats.crawled_count.count))
+        _p('Unique urls       : {}'.format(len(stats.unique_urls.count)))
+        if args.detailed: _p_list(stats.unique_urls.count)
+        _p('Redirect Count    : {}'.format(len(stats.redirects.count)))
+        if args.detailed: _p_list(stats.redirects.count)
         try:
             avg_time = sum(stats.times.count)/float(len(stats.times.count))
-            print('Avg load time     : {:.5f}'.format(avg_time))
         except:
-            print('0')
-        print('\tMax time  : {:.5f}'.format(__try_op(max,stats.times.count)))
-        print('\tMin time  : {:.5f}'.format(__try_op(min,stats.times.count)))
-        print('\tTotal     : {:.5f}'.format(__try_op(sum,stats.times.count)))
-        print('\nAvg URLs/page     : {:.2f}'.format(
-            __try_op(sum,stats.url_counts.count,1)/float(
-            __try_op(len,stats.url_counts.count,1)
-            )))
-        print('URLs skipped      : {}'.format(stats.external_skipped.count))
+            avg_time = 0
+        _p('Avg load time     : {:.5f}s'.format(avg_time))
+        _p('\tMax time  : {:.5f}s'.format(__try_op(max,stats.times.count)))
+        _p('\tMin time  : {:.5f}s'.format(__try_op(min,stats.times.count)))
+        _p('\tTotal     : {:.5f}s'.format(__try_op(sum,stats.times.count)))
 
-        print('Status Codes      :')
-        for code in set(stats.response_codes.count):
-            print('\t{} : {}'.format(
-                 code,stats.response_codes.count.count(code)
-                 ))
+        try:
+            msg = __try_op(sum,stats.url_counts.count,1)/float(
+            __try_op(len,stats.url_counts.count,1))
+        except ZeroDivisionError:
+            msg = 0
+        _p('Avg URLs/page     : {:.2f}'.format(msg))
+        _p('URLs skipped      : {}'.format(stats.external_skipped.count))
+        _p('Request Timeouts  : {}'.format(len(stats.timeouts.count)))
+        if args.detailed and stats.timeouts.count:
+            for timeout in set(stats.timeouts.count):
+                msg = stats.timeouts.count.count(timeout)
+                _p('\t{} : {}'.format(timeout,msg),Color.YELLOW)
+
+        _p('Status Codes      : {}'.format(len(stats.response_codes.count)))
+        if args.detailed and stats.response_codes.count:
+            for code in set(stats.response_codes.count):
+                if code in xrange(200,210):
+                    col = Color.GREEN
+                else:
+                    col = Color.YELLOW
+                msg = color_wrap(stats.response_codes.count.count(code),col)
+                code = color_wrap(code,col)
+                _p('\t{}\t  : {}'.format(
+                     code,msg
+                     ))
 
         url_err_set = __try_op(set,stats.error_urls.count,[0])
-        print('\nURLs with Errors  : {}'.format(color_wrap(
-            __try_op(len,url_err_set),Color.YELLOW)
-            ))
-        print('Errors returned   : {}'.format(color_wrap(
-            __try_op(len,stats.errors.count),Color.YELLOW)
-            ))
-        print bar, '\n'
+        _p('URLs with Errors  : {}'.format(
+                __try_op(len,url_err_set)),Color.YELLOW)
+        _p('Errors returned   : {}'.format(
+                __try_op(len,stats.errors.count)),Color.YELLOW)
+        _p('{}{}'.format(bar, '\n'),Color.GREEN)
 
         # Option to display error list
         if len(url_err_set)>0:
             if not args.yes:
                 ch = raw_input('View error detail? (y/n) > ').lower()
             if args.yes or (ch=='y'):
-                print(color_wrap('[!] Displaying top 5 errors',Color.ERR))
-                srtd_list = sorted(
-                                stats.errors.count,
-                                key=operator.itemgetter(1)
-                                )
+                _p('[!] Displaying top 5 errors',Color.ERR)
+                srtd_list = _error_counts(stats.errors.count)
                 for key in srtd_list[:5]:
                     print(' * {} : count[{}]'.format(key[0],key[1]))
 
@@ -167,8 +218,24 @@ class Counter():
                     raise
             elif self.type is dict:
                     self.count[val]+=1
+            try:
+                length=len(self.count)
+            except TypeError:
+                length = self.count
+            if verbose:
+                log.debug('[-] Counter:{} :: length:{}'.format(
+                                    color_wrap(self.name,Color.MSG),
+                                    color_wrap(length,Color.MSG)))
         finally:
             self.lock.release()
+
+        if self.name in ('unique_urls','error_urls','form_urls','redirects'):
+            self.unique_count()
+
+    def unique_count(self):
+        assert isinstance(self.count,list), \
+            'Invalid counter type for unique: {}'.format(type(self.count))
+        self.count = list(set(self.count))
 
 class Stats:
 
@@ -177,8 +244,9 @@ class Stats:
     counters = ['crawled_count','external_skipped','forms_crawled',
                 'forms_parsed']
 
-    list_counters = ['errors','error_urls','times','url_counts',
-                    'response_codes','unique_urls','form_urls','redirects']
+    list_counters = ['errors','error_urls','times','url_counts', 'timeouts',
+                    'response_codes','unique_urls','form_urls','redirects',
+                    'function_calls']
 
     def __init__(self):
         self.refresh()
@@ -193,43 +261,13 @@ class Stats:
 
         log.debug('[*] Statistics Refreshed')
 
-    def urls(self,new):
-
-        def __unique(visited):
-            # visited must be sorted
-            prev = object()
-            for url in visited:
-                if url == prev:
-                    continue
-                yield url
-                prev = url
-
-        def __requests():
-            # Add total request counter
-            pass
-
-        self.unique_urls.append(new)
-        self.unique_urls = list(__unique(sorted(self.unique_urls)))
-
-    def crawled(self,count,url_counts,external_skipped):
-        # increment the crawled_count
-        self.crawled_count.increment()
-        self.url_counts.increment(url_counts)
-        self.external_skipped.increment(external_skipped)
-
-    def time(self,times):
-        # add times to the list for averaging
-        self.times.increment(times)
-
-    def error(self,deets):
-        # increment each error encountered
-        # deets['url], deets['error']
-        self.error_urls.increment(deets['url'])
-        self.errors.increment(deets['error'])
+    def next_count(self,args,verbose=False):
+        key,val=args
+        getattr(self,key).increment(val,verbose)
 
 def user_prompt(args,msg):
-    if not args.assume_yes:
+    if not args.yes:
         ch = raw_input(msg).upper()
-    if args.assume_yes or (ch=='Y'):
+    if args.yes or (ch=='Y'):
         return True
     return False
