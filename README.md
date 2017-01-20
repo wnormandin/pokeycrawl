@@ -7,10 +7,7 @@ in order to load test (with multiprocessing) or store a site index.
 ---
 ####Installation
 
-```
-# pip install pokeycrawl
-```
-or
+Currently unavailable via pip, clone this repo for the current development version
 
 ```
 # git clone https://github.com/wnormandin/pokeycrawl.git
@@ -19,33 +16,37 @@ or
 ```
 ---
 ####Usage
-
 ```
-$ python pokeycrawl.py --help
-usage: pokeycrawl.py [-h] [-s SPEED] [-v] [-d] [-p PROCS] [-r] [-i] [--ua UA]
-                     [--gz] [--robots] [--maxtime MAXTIME] [--verbose]
-                     [--silent]
-                     url
+$python pokeycrawl_2.py -h
+usage: pokeycrawl [options] URL
+
+Crawl and index websites. Set default values in config.py
 
 positional arguments:
   url                   The URL to crawl
 
 optional arguments:
   -h, --help            show this help message and exit
-  -s SPEED, --speed SPEED
-                        set the crawl speed (defaults to 0.25s)
-  -v, --vary            vary the user-agent
-  -d, --debug           enable debug (verbose) messages
-  -p PROCS, --procs PROCS
-                        concurrent processes (~=simulated visitors)
-  -r, --report          display post-execution summary
-  -i, --index           stores an index in tests/ in the format URL_EPOCH
-  --ua UA               specify a user-agent (overrides -v)
+  -f, --forms           enable form crawling
+  -v, --vary            vary the user-agent using docs/ua.txt
+  -d, --debug           enable debug messages and error raising
+  -r, --report          display a post-execution summary
+  -i, --index           save an index file in tests/URL_EPOCH
   --gz                  accept gzip compression (experimental)
-  --robots              honor robots.txt directives
-  --maxtime MAXTIME     max run time in seconds
-  --verbose             displays all header and http debug info
-  --silent              silences URL crawl notifications
+  --robots              process robots.txt directives (experimental)
+  --verbose             display verbose HTTP transfer output
+  --silent              silence URL crawl notifications
+  -l, --logging         enable logging output to file
+  -y, --yes             assume "yes" for any prompts
+  -t, --test            basic test, does not send requests
+  -s SPEED, --speed SPEED
+                        set the crawl speed
+  --ua UA               specify a user-agent string
+  -p PROCS, --procs PROCS
+                        max worker threads
+  --maxtime MAXTIME     maximum run time in seconds
+  --logpath LOGPATH     specify a log path
+  --timeout TIMEOUT     request timeout in seconds
 ```
 ---
 Usage [examples](./EXAMPLES.md)
