@@ -1,5 +1,5 @@
-##pokeycrawl
-###A python web crawler for load-testing and indexing purposes
+## pokeycrawl
+### A python web crawler for load-testing and indexing purposes
 
 Pokeycrawl is a Python tool for Linux allowing the crawling of websites
 in order to load test (with multiprocessing) or store a site index.
@@ -8,7 +8,7 @@ It was originally composed in Python 2.7, but is undergoing conversion
 to Python 3 to use asyncio.
 
 ---
-####Installation
+#### Installation
 
 Currently unavailable via pip, clone this repo for the current development version
 
@@ -18,7 +18,7 @@ Currently unavailable via pip, clone this repo for the current development versi
 # python setup.py install
 ```
 ---
-####Usage
+#### Usage
 ```
 $python pokeycrawl_2.py -h
 usage: pokeycrawl [options] URL
