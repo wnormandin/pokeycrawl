@@ -1,7 +1,7 @@
-##pokeycrawl examples
-###basic usage examples :
+## pokeycrawl examples
+### basic usage examples :
 ---
-####default invocation
+#### default invocation
 Invoking with no arguments will execute with the following defaults
   - max processes   : 4 (5*cpu_count suggested max)
   - max time        : 20s (approximate execution time)
@@ -23,7 +23,7 @@ $ python pokeycrawl.py systempoetry.com
 [*] Crawl completed successfully
 ```
 ---
-####varying user-agent
+#### varying user-agent
 The user-agent string can be varied to simulate more typical usage by multiple clients
   - specify user-agents in docs/ua.txt
   - one ua string per line
@@ -37,7 +37,7 @@ $ python pokeycrawl.py -v --maxtime 1 pokeybill.us
 [*] Crawl completed successfully
 ```
 ---
-####reporting/indexing
+#### reporting/indexing
 Executing with the `-r|--report` and `-i|--index` arguments
   - The maximum execution time is set to 2s in this example
   - the index file is stored in the tests/ directory in the format :
@@ -79,7 +79,7 @@ Errors returned   : 0
     - *IF* errors are present, the user is prompted and the top 5 errors can be displayed with counts
     
 ---
-####load testing
+#### load testing
 To load test, increase the process count and reduce the speed timing
   - it is recommended to use the `--silent` argument to supress crawl notifications
   - using `--silent` **without** `-d|--debug` and `--verbose` will enable a status bar
@@ -91,7 +91,7 @@ $ python pokeycrawl.py -p 8 --silent -s 0.1 systempoetry.com
 [*] Crawl completed successfully
 ```
 ---
-####verbose
+#### verbose
 Verbose output will include program and HTTP debugging information, HTTP headers, and additional connection details.
 ```
 $ python pokeycrawl.py -p 1 --maxtime 1 --verbose systempoetry.com
@@ -115,7 +115,7 @@ header: Content-Type: text/html; charset=UTF-8
 [*] Crawl completed successfully
 ```
 ---
-####debug
+#### debug
 Debugging output can be useful if execution is failing for bug reports
   - report any issues to bill@pokeybill.us with this output
 ```
@@ -140,7 +140,7 @@ $ python pokeycrawl.py -p 1 --maxtime 2 -d systempoetry.com
 - Crawler 10185 :: killing me
 ```
 ---
-####utilities
+#### utilities
 There are a couple of utility scripts included
 ```
 pokeycrawl/utils$ ls
